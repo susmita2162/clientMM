@@ -1,0 +1,56 @@
+import { useCallback, useState } from 'react';
+import ClaimsSearchForm from '../components/ClaimsSearchForm';
+import { Box } from '@mui/material';
+import type { ClaimsSearchCriteria } from '../types/claims';
+import ClaimsTable from '../components/ClaimsTable/ClaimsTable';
+
+export default function ClaimsSearch() {
+  // State
+  // const [rows, setRows] = React.useState<PostMatchSummary[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [totalRows, setTotalRows] = useState(0);
+  const [searchCriteria, setSearchCriteria] = useState<ClaimsSearchCriteria>(
+    {}
+  );
+
+  // Handle search
+  const handleSearch = useCallback((criteria: ClaimsSearchCriteria) => {
+    setSearchCriteria(criteria);
+  }, []);
+
+  const handleClear = useCallback(() => {
+    setHasSearched(false);
+    setTotalRows(0);
+    setSearchCriteria({});
+  }, []);
+
+  return (
+    <Box
+      sx={{
+        height: '100%',
+        width: '100%',
+        display: 'grid',
+        gridTemplateRows: 'auto minmax(0, 1fr)',
+        gap: 1,
+        overflow: 'hidden',
+        minHeight: 0,
+      }}
+    >
+      <Box sx={{ minWidth: 0, maxHeight: '45vh', overflow: 'auto' }}>
+        <ClaimsSearchForm onSearch={handleSearch} onClear={handleClear} />
+      </Box>
+
+      <Box
+        sx={{
+          minWidth: 0,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <ClaimsTable />
+      </Box>
+    </Box>
+  );
+}

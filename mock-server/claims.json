@@ -1,0 +1,36 @@
+{
+  "reviewclaimsCountMap": [
+    {
+      "claimStream": "HEOS",
+      "totalClaimCount": 4,
+      "manualMatchwithHCFA": "1",
+      "manualMatchPendedwithHCFA": "1",
+      "manualMatchwithUB": "1",
+      "manualMatchPendedwithUB": "1"
+    },
+    {
+      "claimStream": "ALC",
+      "totalClaimCount": 5,
+      "manualMatchwithHCFA": "2",
+      "manualMatchPendedwithHCFA": "1",
+      "manualMatchwithUB": "1",
+      "manualMatchPendedwithUB": "1"
+    },
+    {
+      "claimStream": "SAVILITY",
+      "totalClaimCount": 7,
+      "manualMatchwithHCFA": "1",
+      "manualMatchPendedwithHCFA": "1",
+      "manualMatchwithUB": "2",
+      "manualMatchPendedwithUB": "2"
+    },
+    {
+      "claimStream": "XYZ",
+      "totalClaimCount": 4,
+      "manualMatchwithHCFA": "1",
+      "manualMatchPendedwithHCFA": "1",
+      "manualMatchwithUB": "1",
+      "manualMatchPendedwithUB": "1"
+    }
+  ]
+}
