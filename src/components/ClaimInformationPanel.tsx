@@ -21,6 +21,7 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import Collapsible from './shared/Collapsible';
 import { claimsApi } from '../services/claimsApi';
 import type { DenialReason, HaltedClaim } from '../types/claims';
+import React from 'react';
 
 // ============================================================================
 // TYPES
