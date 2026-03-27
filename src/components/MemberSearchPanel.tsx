@@ -15,8 +15,10 @@ export default function MemberSearchPanel({
   network,
   ccode,
 }: MemberSearchPanelProps) {
-  const handleMemberSelected = (member: any) => {
-    console.log('✅ Member selected in host:', member);
+  // Callback from the remote micro-frontend — shape is owned by that app,
+  // so `unknown` is the correct type here rather than `any`.
+  const handleMemberSelected = (member: unknown) => {
+    console.warn('Member selected in host:', member);
   };
 
   return (

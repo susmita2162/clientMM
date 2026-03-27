@@ -39,17 +39,11 @@ const parseColumnName = (
 ): { category: string; claimType: string } => {
   const lowerName = columnName.toLowerCase();
 
-  // Determine category
-  let category = 'manual-review';
-  if (lowerName.includes('pended')) {
-    category = 'manual-pended';
-  }
+  const category = lowerName.includes('pended')
+    ? 'manual-pended'
+    : 'manual-review';
 
-  // Determine claim type
-  let claimType = 'hcfa';
-  if (lowerName.includes('ub')) {
-    claimType = 'ub';
-  }
+  const claimType = lowerName.includes('ub') ? 'ub' : 'hcfa';
 
   return { category, claimType };
 };
@@ -66,9 +60,8 @@ const parseColumnName = (
 const ClaimsTable = () => {
   const [showClaimType, setShowClaimType] = useState(false);
   const { rows, loading, error } = useClaimsData();
-  const navigate = useNavigate(); // 🆕 NEW - React Router navigation
+  const navigate = useNavigate();
 
-  // 🆕 UPDATED - Navigate to claim queue instead of showing alert
   const renderClickableCell = (
     value: string | number,
     claimStream: string,
@@ -80,13 +73,9 @@ const ClaimsTable = () => {
           href='#'
           onClick={(e) => {
             e.preventDefault();
-
-            // Parse column name to get queue parameters
             const { category, claimType } = parseColumnName(columnName);
-
-            // Navigate to queue - backend will return next available claim
-            // URL format: /claim/manual-review/hcfa/next?stream=HEOS
-            navigate(
+            // void: navigate returns Promise<void> in React Router v6
+            void navigate(
               `/claim/${category}/${claimType}/next?stream=${claimStream}`
             );
           }}
@@ -106,7 +95,6 @@ const ClaimsTable = () => {
     return value;
   };
 
-  // Loading state
   if (loading) {
     return (
       <Box display='flex' justifyContent='center' alignItems='center' flex={1}>
@@ -115,7 +103,6 @@ const ClaimsTable = () => {
     );
   }
 
-  // Error state
   if (error) {
     return (
       <Box
@@ -138,7 +125,6 @@ const ClaimsTable = () => {
     );
   }
 
-  // Main render
   return (
     <Box
       sx={{
@@ -152,7 +138,6 @@ const ClaimsTable = () => {
         px: { xs: 0.5, sm: 1 },
       }}
     >
-      {/* Centered container */}
       <Box
         sx={{
           width: '100%',
@@ -240,7 +225,6 @@ const ClaimsTable = () => {
                   </TableCell>
 
                   {showClaimType ? (
-                    // Detailed view: Show colSpan for sub-headers
                     <>
                       <TableCell
                         colSpan={2}
@@ -265,7 +249,6 @@ const ClaimsTable = () => {
                       </TableCell>
                     </>
                   ) : (
-                    // Aggregated view: Single columns
                     <>
                       <TableCell
                         rowSpan={2}
@@ -346,20 +329,15 @@ const ClaimsTable = () => {
               <TableBody>
                 {rows.map((row, index) => (
                   <TableRow key={row.claimStream} sx={getBandedRowStyle(index)}>
-                    {/* Claim Stream */}
                     <TableCell
                       component='th'
                       scope='row'
                       align='center'
-                      sx={{
-                        ...dataCell,
-                        fontWeight: 600,
-                      }}
+                      sx={{ ...dataCell, fontWeight: 600 }}
                     >
                       {row.claimStream}
                     </TableCell>
 
-                    {/* Total Claim Count */}
                     <TableCell align='center' sx={dataCell}>
                       {renderClickableCell(
                         row.totalClaimCount,
@@ -368,9 +346,7 @@ const ClaimsTable = () => {
                       )}
                     </TableCell>
 
-                    {/* Conditional cell rendering */}
                     {showClaimType ? (
-                      // Detailed view: Show individual HCFA and UB
                       <>
                         <TableCell align='center' sx={dataCell}>
                           {renderClickableCell(
@@ -402,7 +378,6 @@ const ClaimsTable = () => {
                         </TableCell>
                       </>
                     ) : (
-                      // Aggregated view: Show totals
                       <>
                         <TableCell align='center' sx={dataCell}>
                           {renderClickableCell(

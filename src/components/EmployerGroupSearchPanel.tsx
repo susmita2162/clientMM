@@ -15,12 +15,14 @@ export default function EmployerGroupSearchPanel({
   network,
   ccode,
 }: EmployerGroupSearchPanelProps) {
-  const handleEmployerGroupSelected = (group: any) => {
-    console.log('✅ Employer Group selected in host:', group);
+  // Callbacks from the remote micro-frontend — shape is owned by that app,
+  // so `unknown` is the correct type here rather than `any`.
+  const handleEmployerGroupSelected = (group: unknown) => {
+    console.warn('Employer Group selected in host:', group);
   };
 
-  const handleClientCodeSelected = (client: any) => {
-    console.log('✅ Client Code selected in host:', client);
+  const handleClientCodeSelected = (client: unknown) => {
+    console.warn('Client Code selected in host:', client);
   };
 
   return (

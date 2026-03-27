@@ -39,7 +39,7 @@ export default function ManualReviewDashboard() {
 
       if (result.found && result.claim) {
         // Navigate to specific claim detail page (removed 'edp' prefix)
-        navigate(`/claim/${result.claim.claimNumber}`);
+        void navigate(`/claim/${result.claim.claimNumber}`);
       } else {
         // Show not found dialog with appropriate message
         setErrorMessage(
@@ -70,10 +70,10 @@ export default function ManualReviewDashboard() {
    * Handle generic search
    * Kept for backward compatibility with ClaimsSearchForm
    */
-  const handleSearch = (criteria: ClaimsSearchCriteria) => {
+  const handleSearch = (_criteria: ClaimsSearchCriteria) => {
     // Currently not used as we're using handleClaimSearch instead
     // Kept for backward compatibility
-    console.log('Search criteria:', criteria);
+    // console.log('Search criteria:', criteria);
   };
 
   return (

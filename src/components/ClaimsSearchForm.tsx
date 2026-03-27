@@ -25,7 +25,6 @@ const DEFAULTS: ClaimsSearchForm = {
   clientClaimId: '',
 };
 
-// Shared field styles - DRY principle
 const FIELD_STYLES = {
   width: 240,
   '& .MuiOutlinedInput-root': {
@@ -33,7 +32,6 @@ const FIELD_STYLES = {
   },
 };
 
-// Shared button styles - DRY principle
 const BUTTON_BASE_STYLES = {
   minWidth: 110,
   textTransform: 'uppercase' as const,
@@ -62,7 +60,6 @@ export default function ClaimsSearchForm({
           return;
         }
       }
-
       onSearch(data as ClaimsSearchCriteria);
     } finally {
       setIsSearching(false);
@@ -74,7 +71,6 @@ export default function ClaimsSearchForm({
     onClear();
   };
 
-  // Helper function to render text fields - eliminates duplication
   const renderTextField = (
     name: keyof ClaimsSearchForm,
     label: string,
@@ -106,8 +102,16 @@ export default function ClaimsSearchForm({
         px: 3,
       }}
     >
-      <form onSubmit={handleSubmit(submit)} noValidate>
-        {/* Centered container */}
+      {/* onSubmit receives a void-returning wrapper.
+          `submit` is async; handleSubmit expects (data) => void.
+          Wrapping with void satisfies no-misused-promises without
+          changing any submit logic. */}
+      <form
+        onSubmit={(e) => {
+          void handleSubmit(submit)(e);
+        }}
+        noValidate
+      >
         <Box
           sx={{
             display: 'flex',
@@ -123,7 +127,6 @@ export default function ClaimsSearchForm({
               flexWrap: 'wrap',
             }}
           >
-            {/* Text Fields - using helper function */}
             {renderTextField(
               'claimNumber',
               'Claim Number',
@@ -135,7 +138,6 @@ export default function ClaimsSearchForm({
               'Enter client claim ID'
             )}
 
-            {/* Search Button */}
             <Button
               type='submit'
               variant='contained'
@@ -150,7 +152,6 @@ export default function ClaimsSearchForm({
               {isSearching ? 'Searching...' : 'Search'}
             </Button>
 
-            {/* Clear Button */}
             <Button
               type='button'
               variant='outlined'

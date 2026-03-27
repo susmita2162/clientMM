@@ -31,7 +31,7 @@ interface ClaimInformationPanelProps {
   claim: HaltedClaim;
   onAction: (
     action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim',
-    data?: any
+    data?: Record<string, unknown>
   ) => void;
 }
 
@@ -45,9 +45,8 @@ interface ClaimField {
 // CONSTANTS
 // ============================================================================
 
-// Fields in display order — Address spans remaining columns in its row
 const CLAIM_FIELDS: ClaimField[] = [
-  // Row 1 (6 fields × 2 columns = 12 columns)
+  // Row 1
   { label: 'Date of Receipt', key: 'dateOfReceipt' },
   { label: 'Claim Type', key: 'claimType' },
   { label: 'Claim Number', key: 'claimNumber' },
@@ -55,7 +54,7 @@ const CLAIM_FIELDS: ClaimField[] = [
   { label: 'Patient Name', key: 'name' },
   { label: 'Group', key: 'group' },
 
-  // Row 2 (6 fields × 2 columns = 12 columns)
+  // Row 2
   { label: 'Policy ID', key: 'policy' },
   { label: 'Gender', key: 'gender' },
   { label: 'Service Date', key: 'serviceDate' },
@@ -63,7 +62,7 @@ const CLAIM_FIELDS: ClaimField[] = [
   { label: 'Payer', key: 'payer' },
   { label: 'Date of Birth', key: 'dateOfBirth' },
 
-  // Row 3 (4 fields × 2 columns + Address spanning 4 columns = 12 columns)
+  // Row 3 — Address spans remaining columns
   { label: 'Relationship', key: 'relationship' },
   { label: 'Claim Stream', key: 'claimStream' },
   { label: 'Client Code', key: 'ccode' },
@@ -72,8 +71,7 @@ const CLAIM_FIELDS: ClaimField[] = [
 ];
 
 // ============================================================================
-// SUB-COMPONENT — kept stable with memo would be ideal, but inline is fine
-// at this scale since the parent re-renders are bounded.
+// SUB-COMPONENT
 // ============================================================================
 
 function InfoField({ label, value }: { label: string; value: string }) {
@@ -117,8 +115,7 @@ export default function ClaimInformationPanel({
   onAction,
 }: ClaimInformationPanelProps) {
   // --------------------------------------------------------------------------
-  // Denial reasons — fetched from the server on mount.
-  // Never hardcoded in the UI.
+  // Denial reasons — fetched from server on mount, never hardcoded.
   // --------------------------------------------------------------------------
   const [denialReasons, setDenialReasons] = useState<DenialReason[]>([]);
   const [reasonsLoading, setReasonsLoading] = useState(true);
@@ -140,25 +137,19 @@ export default function ClaimInformationPanel({
       }
     };
 
-    fetchReasons();
+    void fetchReasons();
 
-    // Cleanup: ignore stale responses if component unmounts mid-flight
     return () => {
       cancelled = true;
     };
-  }, []); // Fetch once on dashboard load — denial reasons are static ref data
+  }, []);
 
   // --------------------------------------------------------------------------
-  // Per-claim denial reason selection.
-  //
-  // A useRef Map is used so that if the parent renders a different claim into
-  // the same panel instance (e.g. queue navigation), the user's selection for
-  // each claim is independently preserved for the lifetime of this page.
+  // Per-claim denial reason selection — cached by claimNumber.
   // --------------------------------------------------------------------------
   const selectionCache = useRef<Map<string, string>>(new Map());
   const [denialReason, setDenialReason] = useState('');
 
-  // When the claim identity changes, restore the cached selection (or reset).
   useEffect(() => {
     setDenialReason(selectionCache.current.get(claim.claimNumber) ?? '');
   }, [claim.claimNumber]);
@@ -203,7 +194,7 @@ export default function ClaimInformationPanel({
               >
                 <InfoField
                   label={field.label}
-                  value={String(claim[field.key] || '-')}
+                  value={String(claim[field.key] ?? '-')}
                 />
               </Grid>
             ))}
@@ -249,11 +240,10 @@ export default function ClaimInformationPanel({
               Pend Notes
             </Button>
 
-            {/* Denial Reason dropdown — dynamically populated from server.
-                No InputLabel used here intentionally: floating labels add
-                implicit top-padding to FormControl that breaks height
-                alignment in a compact action bar. displayEmpty + placeholder
-                MenuItem is the correct pattern for toolbar-style selects. */}
+            {/* Denial Reason — dynamically populated from server.
+                renderValue param is explicitly typed as `string` to prevent
+                MUI's loose generic from resolving it as `any`, which would
+                trigger no-unsafe-return on the second return path. */}
             <FormControl
               size='small'
               sx={{ minWidth: 160 }}
@@ -264,7 +254,7 @@ export default function ClaimInformationPanel({
                 value={denialReason}
                 onChange={handleDenialReasonChange}
                 displayEmpty
-                renderValue={(selected) => {
+                renderValue={(selected: string) => {
                   if (!selected) {
                     return (
                       <Box
@@ -326,11 +316,7 @@ export default function ClaimInformationPanel({
         </Box>
       </Collapsible>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Denial Reason Validation Modal                                       */}
-      {/* Shown when "Deny Claim" is clicked without a reason selected.        */}
-      {/* Pattern: warning icon + accent header + clear message + single CTA  */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Denial Reason Validation Modal */}
       <Dialog
         open={denyValidationOpen}
         onClose={() => setDenyValidationOpen(false)}
@@ -341,7 +327,6 @@ export default function ClaimInformationPanel({
           sx: { borderRadius: 2, minWidth: 380, maxWidth: 440 },
         }}
       >
-        {/* Accent header bar with icon */}
         <Box
           sx={{
             display: 'flex',
@@ -360,7 +345,7 @@ export default function ClaimInformationPanel({
               width: 36,
               height: 36,
               borderRadius: '50%',
-              bgcolor: 'rgba(237, 108, 2, 0.12)', // warning.main @12% — no custom token needed
+              bgcolor: 'rgba(237, 108, 2, 0.12)',
               flexShrink: 0,
             }}
           >

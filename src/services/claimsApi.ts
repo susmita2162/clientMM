@@ -4,13 +4,13 @@ import {
   type ClaimSearchResult,
   type DenialReason,
   type DenialReasonsResponse,
+  type EmployerGroupSearchResult,
   type HaltedClaim,
+  type MemberSearchResult,
   type QueueClaimResponse,
 } from '../types/claims';
 
-const API_MODE = import.meta.env.VITE_API_MODE || 'mock';
-const MOCK_API_URL = import.meta.env.VITE_MOCK_API_BASE_URL || '';
-const IS_LIVE = API_MODE === 'live';
+const MOCK_API_URL = (import.meta.env.VITE_MOCK_API_BASE_URL as string) || '';
 
 export const claimsApi = {
   /**
@@ -24,7 +24,9 @@ export const claimsApi = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data: ClaimsResponse = await response.json();
+      // Double-cast (any → unknown → T) is required to avoid no-unsafe-assignment.
+      // response.json() returns Promise<any>; casting any→T directly is flagged.
+      const data = (await response.json()) as unknown as ClaimsResponse;
       return data;
     } catch (error) {
       console.error('Error fetching claims data:', error);
@@ -48,7 +50,7 @@ export const claimsApi = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data: DenialReasonsResponse = await response.json();
+      const data = (await response.json()) as unknown as DenialReasonsResponse;
       return data.denialReasons;
     } catch (error) {
       console.error('Error fetching denial reasons:', error);
@@ -81,7 +83,7 @@ export const claimsApi = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data: ClaimSearchResult = await response.json();
+      const data = (await response.json()) as unknown as ClaimSearchResult;
       return data;
     } catch (error) {
       console.error('Error searching for claim:', error);
@@ -109,7 +111,7 @@ export const claimsApi = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as unknown as { claim: HaltedClaim };
       return data.claim;
     } catch (error) {
       console.error('Error fetching claim by ID:', error);
@@ -143,7 +145,7 @@ export const claimsApi = {
       if (!response.ok) {
         if (response.status === 404) {
           return {
-            claim: null as any,
+            claim: null as unknown as HaltedClaim,
             queueKey: '',
             message: 'No claims available in this queue',
           };
@@ -151,7 +153,7 @@ export const claimsApi = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data: QueueClaimResponse = await response.json();
+      const data = (await response.json()) as unknown as QueueClaimResponse;
       return data;
     } catch (error) {
       console.error('Error fetching next claim from queue:', error);
@@ -169,7 +171,7 @@ export const claimsApi = {
   async searchMembers(params: {
     insuredId: string;
     network: string;
-  }): Promise<any[]> {
+  }): Promise<MemberSearchResult[]> {
     try {
       const queryParams = new URLSearchParams({
         insuredId: params.insuredId,
@@ -184,8 +186,10 @@ export const claimsApi = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      return data.members || [];
+      const data = (await response.json()) as unknown as {
+        members: MemberSearchResult[];
+      };
+      return data.members ?? [];
     } catch (error) {
       console.error('Error searching members:', error);
       throw error;
@@ -194,7 +198,7 @@ export const claimsApi = {
 
   /**
    * Search for employer groups by Insured ID and Network
-   * Used in Employer Group Search micro-frontend
+   * sUsed in Employer Group Search micro-frontend
    *
    * @param params - Search parameters (insuredId, network)
    * @returns Array of employer group search results
@@ -202,7 +206,7 @@ export const claimsApi = {
   async searchEmployerGroups(params: {
     insuredId: string;
     network: string;
-  }): Promise<any[]> {
+  }): Promise<EmployerGroupSearchResult[]> {
     try {
       const queryParams = new URLSearchParams({
         insuredId: params.insuredId,
@@ -217,8 +221,10 @@ export const claimsApi = {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      return data.employerGroups || [];
+      const data = (await response.json()) as unknown as {
+        employerGroups: EmployerGroupSearchResult[];
+      };
+      return data.employerGroups ?? [];
     } catch (error) {
       console.error('Error searching employer groups:', error);
       throw error;
@@ -231,7 +237,10 @@ export const claimsApi = {
   async healthCheck(): Promise<{ status: string; message: string }> {
     try {
       const response = await fetch(`${MOCK_API_URL}/health`);
-      return await response.json();
+      return (await response.json()) as unknown as {
+        status: string;
+        message: string;
+      };
     } catch (error) {
       console.error('Health check failed:', error);
       throw error;

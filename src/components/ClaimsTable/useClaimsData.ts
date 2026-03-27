@@ -1,5 +1,5 @@
 // src/components/ClaimsTable/useClaimsData.ts
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { type ClaimStreamData } from '../../types/claims';
 import { claimsApi } from '../../services/claimsApi';
 
@@ -19,7 +19,8 @@ export const useClaimsData = (): UseClaimsDataReturn => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchClaimsData = async () => {
+  // useCallback keeps the reference stable so useEffect dep array is satisfied
+  const fetchClaimsData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -33,11 +34,11 @@ export const useClaimsData = (): UseClaimsDataReturn => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchClaimsData();
-  }, []);
+    void fetchClaimsData();
+  }, [fetchClaimsData]);
 
   return {
     rows,
