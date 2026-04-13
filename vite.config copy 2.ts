@@ -1,16 +1,11 @@
-// vite.config.ts — ucp-client-match-ui (HOST)
+// vite.config.ts
 //
-// Shared singleton rules:
-//   Only packages that are safe to share across the federation boundary are
-//   listed here. @emotion/styled, @emotion/cache, @emotion/serialize are
-//   intentionally excluded from ALL three apps (host + both remotes) —
-//   sharing them causes "TypeError: e is not a function" at runtime due to
-//   CJS/ESM interop issues in @module-federation/vite. Each app bundles its
-//   own copy; the size trade-off is acceptable and correct.
+// MFE remote entry URLs are driven by env vars so the same config works
+// across local dev and the deployed poc environment without edits.
+// vite.config.ts reads them via loadEnv() at build time.
 //
-//   requiredVersion uses >= ranges so minor version differences between host
-//   (19.2.0) and remotes (19.1.1) don't cause federation warnings or
-//   unpredictable singleton resolution.
+// Proxy removed: VITE_MOCK_API_BASE_URL is the full URL to the centralized
+// server, so claimsApi.ts constructs absolute URLs directly.
 
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -45,14 +40,12 @@ export default defineConfig(({ mode }) => {
           },
         },
         shared: {
-          react: { singleton: true, requiredVersion: '>=19.1.1' },
-          'react-dom': { singleton: true, requiredVersion: '>=19.1.1' },
-          '@mui/material': { singleton: true, requiredVersion: '>=7.3.4' },
-          '@mui/icons-material': {
-            singleton: true,
-            requiredVersion: '>=7.3.4',
-          },
-          '@emotion/react': { singleton: true, requiredVersion: '>=11.14.0' },
+          react: { singleton: true },
+          'react-dom': { singleton: true },
+          '@mui/material': { singleton: true },
+          '@mui/icons-material': { singleton: true },
+          '@emotion/react': { singleton: true },
+          '@emotion/utils': { singleton: true },
         },
         dts: false,
       }),
@@ -61,6 +54,8 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       // No proxy — claimsApi.ts uses absolute VITE_MOCK_API_BASE_URL directly.
+      // To run against localhost:3001 offline, set
+      // VITE_MOCK_API_BASE_URL=http://localhost:3001 in .env.local.
     },
 
     build: {

@@ -1,0 +1,23 @@
+label:
+  environment: <env>
+
+ingress:
+  host:
+    ctrPlatform:
+      https: <serviceurl>.<env>.multiplan.com
+      tls:
+        - secretName: <servivceName>-<env>-tls
+          hosts:
+            - <serviceurl>.<env>.multiplan.com
+
+dnsConfigSearches:
+  mpigslb: <env>.mpigslb
+  multiplan: <env>.multiplan.com
+
+env_spec_var:
+  - name: env-specific-var
+    value: env-specific-var-value
+
+env_secret:
+  - name: service-secret
+    value: PW

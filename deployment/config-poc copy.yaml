@@ -1,0 +1,22 @@
+# config-poc.yaml — ucp-member-search-ui (live mode)
+# ⚠️ Update backendApiUrl to the confirmed POC backend hostname.
+
+label:
+  environment: poc
+
+backendApiUrl: "https://claims-poc.poc.multiplan.com/claimsearchservice/api/"
+
+ingress:
+  annotations:
+    field.cattle.io/publicEndpoints: "[]"
+  host:
+    ctrPlatform:
+      https: claims-poc.poc.multiplan.com
+      tls:
+        - secretName: claims-poc-poc-tls
+          hosts:
+            - claims-poc.poc.multiplan.com
+
+dnsConfigSearches:
+  mpigslb: poc.mpigslb
+  multiplan: poc.multiplan.com

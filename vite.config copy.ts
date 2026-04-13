@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 
 export default defineConfig({
+  base: '/ucp-client-match-ui',
   plugins: [
     react(),
     federation({
@@ -25,10 +26,10 @@ export default defineConfig({
         '@mui/material': { singleton: true },
         '@mui/icons-material': { singleton: true },
         '@emotion/react': { singleton: true },
-        '@emotion/styled': { singleton: true },
+        // '@emotion/styled': { singleton: true },
         // ✅ FIX ISSUE 1: Add @emotion internal packages
-        '@emotion/cache': { singleton: true },
-        '@emotion/serialize': { singleton: true },
+        // '@emotion/cache': { singleton: true },
+        // '@emotion/serialize': { singleton: true },
         '@emotion/utils': { singleton: true },
       },
       // ✅ FIX ISSUE 2 & 3: Host doesn't need DTS - you have manual types
@@ -46,6 +47,6 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
-    minify: false, // Better for debugging
+    // minify: false, // Better for debugging
   },
 });

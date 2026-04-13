@@ -1,0 +1,164 @@
+# values.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Base Helm values for client-match (React + MUI + Vite, served via nginx).
+# Modelled from ucw-claim-history-ui (React reference project).
+#
+# Changes from previous version — all confirmed from React reference:
+#   - runAsUser/runAsGroup: 3000 → 1001 (confirmed from reference values.yaml)
+#   - service.port: 80 → 3000 (nginx listens on 3000 as non-root user)
+#   - livenessProbe: fixed — removed Spring Boot actuator path, uses /health
+#   - readinessProbe: aligned with /health endpoint
+#   - appPath: added /client-match/ (org ingress sub-path pattern)
+#   - label.language: ReactJS (from reference)
+#   - resources: aligned with reference project sizing
+#   - appd section: kept as reference has it, but disabled
+#   - Removed framework/part-of labels not present in React reference
+# ─────────────────────────────────────────────────────────────────────────────
+
+replicaCount: 1
+
+image:
+  # ⚠️  artifactoryPath in pipelineConfig.json drives the full image path.
+  # The shared library constructs: <registry>/<artifactoryPath>:<BUILD_VERSION>
+  # Update to match your confirmed artifactoryPath.
+  repository: 'artifactory.multiplan.com/mpi_javascript/react/client-match/ui'
+  tag: ''
+  pullPolicy: IfNotPresent
+
+# Intentional typo preserved from reference — shared library reads this key
+imagePullSecres: []
+
+nameOverride: ''
+fullnameOverride: ''
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ''
+
+# ── Labels ────────────────────────────────────────────────────────────────────
+# Confirmed structure from React reference project values.yaml.
+# Stripped Java-specific labels (framework: springboot etc.)
+label:
+  configuration-item: ucp
+  environment: OVERWRITE_ME_IN_ENV_CONFIG # set by config-{env}.yaml
+  domain: Claims
+  language: ReactJS # confirmed from reference
+
+podAnnotations: {}
+
+deploymentAnnotations:
+  app.multiplan.io/dist-email: your-team@multiplan.com # ⚠️ update to your team email
+  app.multiplan.io/expected_no_pods: '1'
+  servicenow: app-dev-ucp
+  app-tier: tier1
+
+podSecurityContext: {}
+
+# ── Security Context ──────────────────────────────────────────────────────────
+# UID/GID 1001 confirmed from React reference project values.yaml.
+# Dockerfile creates user with UID 1001 — these two must always match.
+# If they differ, the pod starts but file permission errors occur at runtime.
+securityContext:
+  capabilities:
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+  runAsNonRoot: true
+  runAsUser: 1001 # confirmed from React reference (not 3000 as in Java reference)
+  runAsGroup: 1001
+
+# ── Service ───────────────────────────────────────────────────────────────────
+# port 3000: nginx listens on 3000 because non-root users cannot bind to
+# ports below 1024 on Linux. Confirmed from reference project and nginx.conf.
+service:
+  type: ClusterIP
+  port: 3000
+  appPort: 3000
+  annotations: {}
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+# appPath: /client-match/ — org pattern serves React apps at a sub-path.
+# Confirmed from reference: ucw-claim-history-ui uses /ucw-claim-history-ui/
+# This path must be consistent across:
+#   nginx.conf (location block), Dockerfile (COPY dest), vite.config.ts (base)
+ingress:
+  enabled: true
+  annotations:
+  host:
+    ctrPlatform:
+      https: OVERWRITE_ME_IN_ENV_CONFIG # set by config-{env}.yaml
+  paths:
+    appPath: /client-match
+  tls: []
+
+dnsConfigSearches:
+  mpigslb: OVERWRITE_ME_IN_ENV_CONFIG
+  multiplan: OVERWRITE_ME_IN_ENV_CONFIG
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+# Aligned with React reference project.
+# nginx serving static files is lightweight but MUI bundles can be large —
+# keeping memory at 1000Mi matches the reference team's experience.
+resources:
+  requests:
+    cpu: 200m
+    memory: 1000Mi
+  limits:
+    cpu: 1000m
+    memory: 1500Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+env: []
+
+secrets:
+
+# ── Probes ────────────────────────────────────────────────────────────────────
+# WHY /health and not the actuator path from the reference:
+#   The reference values.yaml has livenessProbe pointing to
+#   /actuator/health/readiness — this is a Spring Boot path copied incorrectly
+#   into the React reference. A React/nginx app has no actuator endpoint.
+#   If left as-is, every pod fails its liveness check and gets restarted.
+#   /health is defined in nginx.conf and returns 200 OK immediately.
+readinessProbe:
+  httpGet:
+    path: '/ucp-client-match-ui/'
+    port: 3000
+    scheme: HTTP
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  successThreshold: 2
+  failureThreshold: 10
+
+livenessProbe:
+  httpGet:
+    path: '/ucp-client-match-ui/'
+    port: 3000
+    scheme: HTTP
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  successThreshold: 1
+  failureThreshold: 10
+
+platform: oci
+
+# appd kept to match reference structure — disabled for React/nginx app.
+# AppDynamics is a JVM agent. There is no agent to instrument in nginx.
+appd:
+  enabled: 'false'
+  access-key: OVERWRITE_ME_IN_ENV_CONFIG
+  controller: OVERWRITE_ME_IN_ENV_CONFIG
+
+properties:
+  log_level: warn
+  email_to: your-team@multiplan.com # ⚠️ update to your team email

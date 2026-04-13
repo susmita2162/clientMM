@@ -1,0 +1,34 @@
+label:
+  environment: poc
+
+ingress:
+  annotations:
+    field.cattle.io/publicEndpoints: '[{"addresses":["10.37.131.172"],"port":80,"protocol":"HTTP","serviceName":"ucp-ui:ucp-member-search-ui","ingressName":"ucp-ui:ucp-member-search-ui-minion","hostname":"claims-poc.dev.multiplan.com","path":"/ucp-member-search-ui","allNodes":false}]'
+  host:
+    ctrPlatform:
+      https: claims-poc.dev.multiplan.com
+      tls:
+        - secretName: claims-poc-dev-tls
+          hosts:
+            - claims-poc.dev.multiplan.com
+
+dnsConfigSearches:
+  mpigslb: dev.mpigslb
+  multiplan: dev.multiplan.com
+
+spec:
+  dnsConfig:
+    searches:
+      - pocclmcfsn001.vcnphxpoc01.oraclevcn.com
+      - vcnphxpoc01.oraclevcn.com
+
+env_spec_var:
+  # - name: service-secret
+  #   value: PW
+
+env_secret:
+  # - name: service-secret
+  #   value: PW
+
+properties:
+  oci_LoadBalancer_ocid: "ocid1.networkloadbalancer.oc1.phx......"

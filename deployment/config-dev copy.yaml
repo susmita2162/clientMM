@@ -1,0 +1,25 @@
+# config-dev.yaml — ucp-member-search-ui (live mode)
+# nginx proxies /api/ to the REAL backend.
+# /claimsearchservice is the backend context path — lives here, not in bundle.
+# browser: POST /api/member-details/memberSearch/search
+# → backend: POST https://claims-poc.dev.multiplan.com/claimsearchservice/api/member-details/memberSearch/search ✓
+
+label:
+  environment: dev
+
+backendApiUrl: "https://claims-poc.dev.multiplan.com/claimsearchservice/api/"
+
+ingress:
+  annotations:
+    field.cattle.io/publicEndpoints: '[{"addresses":["10.37.131.172"],"port":80,"protocol":"HTTP","serviceName":"ucp-ui:ucp-member-search-ui","ingressName":"ucp-ui:ucp-member-search-ui-minion","hostname":"claims-poc.dev.multiplan.com","path":"/ucp-member-search-ui","allNodes":false}]'
+  host:
+    ctrPlatform:
+      https: claims-poc.dev.multiplan.com
+      tls:
+        - secretName: claims-poc-dev-tls
+          hosts:
+            - claims-poc.dev.multiplan.com
+
+dnsConfigSearches:
+  mpigslb: dev.mpigslb
+  multiplan: dev.multiplan.com

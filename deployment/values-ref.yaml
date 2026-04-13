@@ -1,0 +1,137 @@
+# values.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Base Helm values for member-search.
+# These are the defaults. config-{env}.yaml files override per environment.
+#
+# The shared library merges: values.yaml + config-{env}.yaml at deploy time.
+# ─────────────────────────────────────────────────────────────────────────────
+
+replicaCount: 1
+
+image:
+  # Populated by the Jenkins shared library at deploy time.
+  # Format: <registry>/<org>/member-search:<BUILD_VERSION>
+  repository: "artifactory.multiplan.com/mpi_javascript/ucw/react/ucw-claim-history-uis"
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecres: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+label:
+  configuration-item: ucp
+  environment: OVERWRITE_ME_IN_ENV_CONFIG
+  domain: claims
+  app-tier: tier1
+  language: ReactJS
+
+podAnnotations: {}
+
+deploymentAnnotations:
+  app.multiplan.io/dist-email: mgdclaims..@xyz.com
+  app.multiplan.io/expected_no_pods: "1"
+  servicenow: app-dev-ucw
+  app-tier: tier1
+
+podSecurityContext: {}
+
+securityContext:
+  capabilities:
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+
+service:
+  type: ClusterIP
+  port: 3000
+  appPort: 3000
+  annotations: {}
+  #   prometheus.io/path: "{{ .Values.ingress.paths.appPath }}/actuator/prometheus"
+  #   prometheus.io.port: "{{ .Values.service.port }}"
+  #   prometheus.io./scrape: "true"
+
+ingress:
+  enabled: true
+  annotations:
+  # host is overridden per environment in config-{env}.yaml
+  host:
+    ctrPlatform:
+      https: OVERWRITE_ME_IN_ENV_CONFIG
+  paths:
+    appPath: /ucw-claim-history-ui/
+  tls: []
+
+dnsConfigSearches:
+  mpigslb: OVERWRITE_ME_IN_ENV_CONFIG
+  multiplan: OVERWRITE_ME_IN_ENV_CONFIG
+
+# Resource limits — right-sized for a static nginx container
+resources:
+  requests:
+    cpu: 200m
+    memory: 1000Mi
+  limits:
+    cpu: 1000m
+    memory: 1500Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+affinity: {}
+
+env:
+  # - name: LOG_LEVEL
+  #   value: "warn"
+  # - name: status_loadBalancer_ingress_ip
+  #   value: OVERWRITE_ME_IN_ENV_CONFIG
+
+secrets:
+
+readinessProbe:
+  # httpGet:
+  #   path: "{{ .Values.ingress.paths.appPath }}/actuator/health/readiness"
+  #   port: "{{ .Values.service.port }}"
+  #   scheme: HTTP
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  successThreshold: 2
+  failureTheshold: 10
+
+# Probes — hits /health endpoint defined in nginx.conf
+livenessProbe:
+  httpGet:
+    # path: "{{ .Values.ingress.paths.appPath }}/actuator/health/readiness"
+    # port: "{{ .Values.service.port }}"
+    # scheme: HTTP
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  successThreshold: 1
+  failureTheshold: 10
+
+platform: oci
+
+appd:
+  enabled: "false"
+  access-key: OVERWRITE_ME_IN_ENV_CONFIG
+  controller: OVERWRITE_ME_IN_ENV_CONFIG
+
+properties:
+  log_level: warn
+  email_to: abc@xyz.com
