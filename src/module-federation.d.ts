@@ -89,6 +89,13 @@ declare module 'memberSearchApp/MemberSearchWidget' {
      * Auto-search on mount
      */
     autoSearch?: boolean;
+
+    /**
+     * Render mode.
+     * 'standalone' (default) — full field set with Advanced Search toggle.
+     * 'embedded'             — reduced field set when hosted inside Claims Management.
+     */
+    mode?: 'standalone' | 'embedded';
   }
 
   const MemberSearchWidget: ComponentType<MemberSearchWidgetProps>;
