@@ -6,7 +6,7 @@ import ClaimInformationPanel from '../components/ClaimInformationPanel';
 import MemberSearchPanel from '../components/MemberSearchPanel';
 import EmployerGroupSearchPanel from '../components/EmployerGroupSearchPanel';
 import { claimsApi } from '../services/claimsApi';
-import type { HaltedClaim } from '../types/claims';
+import type { HaltedClaim, NextHaltedClaimResponse } from '../types/claims';
 
 // ============================================================================
 // TabPanel
@@ -35,6 +35,61 @@ function TabPanel({ children, value, index }: TabPanelProps) {
   );
 }
 
+// ============================================================================
+// MAPPER
+//
+// NextHaltedClaimResponse (live API flat shape) → HaltedClaim (UI shape).
+//
+// WHY: getNextHaltedClaim returns NextHaltedClaimResponse with field names
+// that differ from HaltedClaim (e.g. payerName vs payer, policyNum vs policy).
+// ClaimInformationPanel and setClaim both expect HaltedClaim — mapping here
+// keeps all other files unchanged.
+//
+// Field mapping (live → HaltedClaim):
+//   insuredFullName     → name
+//   insuredGender       → gender
+//   insuredDob          → dateOfBirth
+//   insuredAddress1     → address
+//   payerName           → payer
+//   policyNum           → policy
+//   grpName             → group
+//   dateOfService       → serviceDate
+//   receiptDate         → dateOfReceipt
+//   claimType (string)  → claimType (cast to union)
+//   category  (string)  → category  (cast to union)
+//   status    (string)  → status    (cast to union)
+// ============================================================================
+function mapToHaltedClaim(r: NextHaltedClaimResponse): HaltedClaim {
+  return {
+    claimNumber: r.claimNumber,
+    clientClaimId: r.clientClaimId,
+    claimStream: r.claimStream,
+    claimType: r.claimType as HaltedClaim['claimType'],
+    dateOfReceipt: r.receiptDate,
+    serviceDate: r.dateOfService,
+    policy: r.policyNum,
+    insuredId: r.insuredId,
+    ccode: r.ccode,
+    group: r.grpName,
+    payer: r.payerName,
+    sender: r.sender,
+    network: r.network,
+    name: r.insuredFullName,
+    dateOfBirth: r.insuredDob,
+    gender: r.insuredGender,
+    relationship: r.relationship,
+    address: r.insuredAddress1,
+    category: r.category as HaltedClaim['category'],
+    status: r.status as HaltedClaim['status'],
+    lockedBy: null,
+    lockedAt: null,
+  };
+}
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
 export default function ClientManualMatchDashboard() {
   const { claimId, category, claimType } = useParams<{
     claimId?: string;
@@ -52,32 +107,43 @@ export default function ClientManualMatchDashboard() {
     setError(null);
     try {
       if (claimId && !category && !claimType) {
+        // Direct access — load by claim number (mock path, typed as HaltedClaim)
         const claimData = await claimsApi.getClaimById(claimId);
         setClaim(claimData);
       } else if (category && claimType) {
+        // Queue-based access — use live endpoint
         const urlParams = new URLSearchParams(window.location.search);
         const claimStream = urlParams.get('stream');
         if (!claimStream) {
           setError('Missing claim stream parameter');
           return;
         }
-        const result = await claimsApi.getNextClaimFromQueue({
-          claimStream,
-          category,
+
+        // pended: derived from the category URL segment.
+        // MANUAL_REVIEW_PENDED routes → pended=true; MANUAL_REVIEW → false.
+        const pended = category.toUpperCase().includes('PENDED');
+
+        const response = await claimsApi.getNextHaltedClaim({
+          lockedByUser: 'system', // replace with auth user once auth is wired
+          lockExpiration: 0, // int32 per swagger — no UI-driven value
+          network: claimStream, // claimStream IS the network identifier
+          pended,
           claimType,
         });
-        if (result.claim) {
-          setClaim(result.claim);
-          void navigate(`/claim/${result.claim.claimNumber}`, {
-            replace: true,
-          });
+
+        if (response) {
+          // Map live response shape → HaltedClaim so all downstream
+          // components (ClaimInformationPanel etc.) remain unchanged.
+          const mapped = mapToHaltedClaim(response);
+          setClaim(mapped);
+          void navigate(`/claim/${response.claimNumber}`, { replace: true });
         } else {
           setError('No claims available in this queue');
         }
       } else {
         setError('Invalid route parameters');
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error loading claim:', err);
       setError('Failed to load claim. Please try again.');
     } finally {
@@ -90,16 +156,14 @@ export default function ClientManualMatchDashboard() {
   }, [loadClaim]);
 
   /**
-   * Post-action handler — called by ClaimInformationPanel after a successful API call.
+   * Post-action handler — called by ClaimInformationPanel after a
+   * successful API call.
    *
-   * pend/deny/reset: navigate back to /manual-review so the user can pick the
-   *   next claim. The pended/denied claim is no longer actionable in this session.
+   * pend / deny / resetClaim → navigate to /manual-review.
+   *   Claim is no longer actionable in this session.
    *
-   * updateCCode: stay on the current claim — the user may want to continue
-   *   reviewing after a CCode update.
-   *
-   * resetClaim: navigate back to /manual-review — reset clears the search state
-   *   so the current context is stale.
+   * updateCCode → reload claim in place.
+   *   User may want to continue reviewing after updating the CCode.
    */
   const handleClaimAction = (
     action:
@@ -117,7 +181,6 @@ export default function ClientManualMatchDashboard() {
         void navigate('/manual-review');
         break;
       case 'updateCCode':
-        // Stay — reload claim to reflect updated CCode
         void loadClaim();
         break;
     }

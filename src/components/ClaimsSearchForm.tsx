@@ -14,10 +14,27 @@ const schema = z.object({
 
 type ClaimsSearchForm = z.infer<typeof schema>;
 
+/**
+ * Search params passed to onClaimSearch.
+ *
+ * Exported so callers (ManualReviewDashboard) can type their handler correctly
+ * and route to the correct live endpoint:
+ *   claimNumber    → GET /api/clientMatch/claim/findByClaimId/{id}
+ *   clientClaimId  → GET /api/clientMatch/claim/findByClientClaimId/{id}
+ *
+ * Passing both fields — rather than merging into one string — lets the caller
+ * call the correct endpoint without guessing which field the user filled.
+ * Priority when both filled: claimNumber (EDP) takes precedence.
+ */
+export type ClaimSearchParams = {
+  claimNumber?: string;
+  clientClaimId?: string;
+};
+
 type Props = {
   onSearch: (data: ClaimsSearchCriteria) => void;
   onClear: () => void;
-  onClaimSearch?: (claimId: string) => Promise<void>;
+  onClaimSearch?: (params: ClaimSearchParams) => Promise<void>;
 };
 
 const DEFAULTS: ClaimsSearchForm = {
@@ -54,11 +71,13 @@ export default function ClaimsSearchForm({
     setIsSearching(true);
     try {
       if (onClaimSearch && (data.claimNumber || data.clientClaimId)) {
-        const claimId = data.claimNumber || data.clientClaimId;
-        if (claimId) {
-          await onClaimSearch(claimId);
-          return;
-        }
+        // Pass both fields so the caller can route to the correct endpoint.
+        // Do NOT merge into a single string — that loses which field was used.
+        await onClaimSearch({
+          claimNumber: data.claimNumber || undefined,
+          clientClaimId: data.clientClaimId || undefined,
+        });
+        return;
       }
       onSearch(data as ClaimsSearchCriteria);
     } finally {
@@ -102,10 +121,7 @@ export default function ClaimsSearchForm({
         px: 3,
       }}
     >
-      {/* onSubmit receives a void-returning wrapper.
-          `submit` is async; handleSubmit expects (data) => void.
-          Wrapping with void satisfies no-misused-promises without
-          changing any submit logic. */}
+      {/* void wrapper: handleSubmit expects (data) => void; submit is async */}
       <form
         onSubmit={(e) => {
           void handleSubmit(submit)(e);
