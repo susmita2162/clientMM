@@ -1,4 +1,7 @@
-// Type definitions for Claims data - UPDATED FOR PHASE-2
+// src/types/claims.ts
+// Type definitions for Claims data
+// PHASE-2 UPDATE: NextHaltedClaimRequest/Response added to match live
+//   POST /api/client-match/claim-match-action/nextHalted (claim-match service)
 
 /**
  * Search criteria for claims
@@ -22,60 +25,104 @@ export interface ClaimsResponse {
 }
 
 // ============================================================================
-// QUEUE MANAGEMENT TYPES (Phase 1)
+// QUEUE MANAGEMENT TYPES
 // ============================================================================
 
 /**
- * Queue parameters for fetching next claim
+ * Request body for POST /api/client-match/claim-match-action/nextHalted
+ * Field names match live swagger (NextHaltedClaimRequest schema).
+ */
+export interface NextHaltedClaimRequest {
+  lockedByUser: string;
+  lockExpiration: number; // int32
+  network: string;
+  pended: boolean;
+  claimType: string;
+}
+
+/**
+ * Response from POST /api/client-match/claim-match-action/nextHalted
+ * Flat structure — all fields are top-level strings/numbers.
+ * Field names match live swagger (NextHaltedClaimResponse schema) exactly.
+ *
+ * NOTE: claimNumber is string (not int64) — confirmed from live swagger.
+ */
+export interface NextHaltedClaimResponse {
+  claimNumber: string;
+  claimId: string;
+  clientClaimId: string;
+  network: string;
+  status: string;
+  insuredId: string;
+  insuredFullName: string;
+  insuredFirstName: string;
+  insuredLastName: string;
+  insuredGender: string;
+  insuredAddress1: string;
+  insuredCityStateZip: string;
+  insuredDob: string;
+  memberDob: string;
+  payerName: string;
+  scenario: string;
+  category: string;
+  claimType: string;
+  claimStream: string;
+  relationship: string;
+  policyNum: string;
+  matchType: string;
+  pendedClaim: string;
+  matchActionId: number; // int64
+  message: string;
+  ccode: string;
+  dateOfService: string;
+  receiptDate: string; // date-time
+  grpName: string;
+  sender: string;
+}
+
+/**
+ * @deprecated Use NextHaltedClaimRequest + getNextHaltedClaim() for live mode.
+ * Kept for backward compatibility with existing queue management code.
  */
 export interface QueueParams {
-  claimStream: string; // HEOS, ALC, SAVILITY, XYZ
+  claimStream: string;
   category: 'MANUAL_REVIEW' | 'MANUAL_REVIEW_PENDED';
   claimType: 'HCFA' | 'UB';
-  userId?: string; // Optional: User requesting the claim (for locking)
+  userId?: string;
 }
 
 /**
- * HaltedClaim - Represents a claim that requires manual review
- *
- * Updated in Phase-2 to match actual mock data structure from haltedClaims.json
+ * HaltedClaim — flat shape used by mock data and existing UI components.
+ * Field names do NOT yet match the live NextHaltedClaimResponse — this
+ * mapping is parked pending Claim Information panel alignment.
  */
 export interface HaltedClaim {
-  // === PRIMARY IDENTIFIERS ===
-  claimNumber: string; // Primary key - Claim Number
-  clientClaimId: string; // Client's claim ID (searchable)
-
-  // === CLAIM DETAILS ===
-  claimStream: string; // HEOS, ALC, SAVILITY, XYZ
-  claimType: 'HCFA' | 'UB'; // Form type
-  dateOfReceipt: string; // When claim was received
-  serviceDate: string; // Date of service
-
-  // === POLICY & COVERAGE ===
-  policy: string; // Policy number (maps to 'policyId' in mock data)
-  insuredId: string; // Insured member ID
-  ccode: string; // Client/employer code
-  group: string; // Group name
-  payer: string; // Payer name (maps to 'payor' in mock data)
-  sender: string; // Sender/provider name
-  network: string; // Network identifier
-
-  // === PATIENT INFORMATION ===
-  name: string; // Patient name
-  dateOfBirth: string; // Patient DOB
-  gender: string; // M/F/Other
-  relationship: string; // Relationship code (01=Self, 18=Spouse, etc.)
-  address: string; // Patient address
-
-  // === QUEUE MANAGEMENT ===
-  category: 'MANUAL_REVIEW' | 'MANUAL_REVIEW_PENDED'; // Which review queue
-  status: 'HALTED' | 'LOCKED' | 'PROCESSING'; // Locking status
-  lockedBy: string | null; // User email/ID who has claim locked
-  lockedAt: string | null; // ISO datetime when locked
+  claimNumber: string;
+  clientClaimId: string;
+  claimStream: string;
+  claimType: 'HCFA' | 'UB';
+  dateOfReceipt: string;
+  serviceDate: string;
+  policy: string;
+  insuredId: string;
+  ccode: string;
+  group: string;
+  payer: string;
+  sender: string;
+  network: string;
+  name: string;
+  dateOfBirth: string;
+  gender: string;
+  relationship: string;
+  address: string;
+  category: 'MANUAL_REVIEW' | 'MANUAL_REVIEW_PENDED';
+  status: 'HALTED' | 'LOCKED' | 'PROCESSING';
+  lockedBy: string | null;
+  lockedAt: string | null;
 }
 
 /**
- * Claim search result
+ * Claim search result — used by findByClaimId / findByClientClaimId.
  */
 export interface ClaimSearchResult {
   found: boolean;
@@ -85,8 +132,7 @@ export interface ClaimSearchResult {
 }
 
 /**
- * Queue claim response (includes locking info)
- * UPDATED FOR PHASE-2
+ * @deprecated Use NextHaltedClaimResponse for live mode.
  */
 export interface QueueClaimResponse {
   claim: HaltedClaim | null;
@@ -95,17 +141,99 @@ export interface QueueClaimResponse {
 }
 
 // ============================================================================
+// CLAIM PROFILE MANAGEMENT TYPES
+// Field names match live swagger schemas exactly.
+// ============================================================================
+
+/**
+ * POST /api/client-match/claim-match-action/pend
+ * Pend or unpend a claim and optionally add notes.
+ */
+export interface PendClaimRequest {
+  claimNumber: string;
+  claimType: string;
+  userName: string;
+  pendNotes: string;
+  pended: boolean;
+  lockExpiration: number; // int32
+  network: string;
+}
+
+/**
+ * POST /api/client-match/claim-match-action/deny
+ */
+export interface DenyDecisionRequest {
+  claimNumber: string;
+  clientClaimNumber: string;
+  claimType: string;
+  userName: string;
+  denialReason: string;
+}
+
+/**
+ * POST /api/client-match/claim-match-action/claim/updateCcode
+ */
+export interface UpdateCcodeRequest {
+  policy: string;
+  ccode: string;
+  policyAlias: string;
+  forceCcode: boolean;
+  serviceDate: string; // date-time
+  receiptDate: string; // date-time
+  claimNumber: string;
+  claimType: string;
+  statusCode: string;
+  lockedByUser: string;
+  eligMemberId: number; // int64
+  ccodeRecId: number; // int64
+  forcePolicy: boolean;
+}
+
+/**
+ * POST /api/client-match/claim-match-action/claim/reset
+ */
+export interface ResetSearchRequest {
+  claimType: string;
+  network: string;
+  statusCode: number; // int64
+  pended: boolean;
+}
+
+/**
+ * Response shape for deny and updateCcode (200).
+ * Pend and reset return empty {} on 200 — modelled as Promise<void>.
+ */
+export interface ClaimActionResponse {
+  header: {
+    requestId: string;
+    claimNumber: string;
+  };
+  status: {
+    statusCode: string;
+    description: string;
+    errorCode: string;
+    errorMessage: string;
+    receivedTime: string;
+    responseTime: string;
+  };
+}
+
+// ============================================================================
 // DENIAL REASON TYPES
 // ============================================================================
 
 /**
- * A single denial reason option returned from GET /api/claims/denial-reasons.
- * The UI must never hardcode these values — always fetch from the server.
+ * Denial reason for UI consumption.
+ *
+ * Live API (GET /api/client-match/claim-match-action/denial-reasons) returns
+ * a plain string[] e.g. ["Insufficient patient data to reprice.", ...].
+ * claimsApi.getDenialReasons() normalizes that to { value, label } so the
+ * UI dropdown contract does not change.
+ *
+ * Mock route mirrors the same normalization — returns plain string[].
  */
 export interface DenialReason {
-  /** Machine-readable code stored on the claim (e.g. "DUPLICATE_CLAIM") */
   value: string;
-  /** Human-readable label shown in the dropdown (e.g. "Duplicate Claim") */
   label: string;
 }
 
@@ -114,7 +242,7 @@ export interface DenialReasonsResponse {
 }
 
 // ============================================================================
-// MEMBER SEARCH TYPES (Phase 2)
+// MEMBER SEARCH TYPES
 // ============================================================================
 
 export interface MemberSearchParams {
@@ -136,7 +264,7 @@ export interface MemberSearchResult {
 }
 
 // ============================================================================
-// EMPLOYER GROUP SEARCH TYPES (Phase 2)
+// EMPLOYER GROUP SEARCH TYPES
 // ============================================================================
 
 export interface EmployerGroupSearchParams {

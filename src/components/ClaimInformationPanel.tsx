@@ -1,402 +1,231 @@
 // src/components/ClaimInformationPanel.tsx
-import { useState, useEffect, useRef } from 'react';
-import {
-  Box,
-  Grid,
-  Typography,
-  Button,
-  MenuItem,
-  Select,
-  FormControl,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  CircularProgress,
-  Divider,
-  type SelectChangeEvent,
-} from '@mui/material';
-import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+// Thin orchestrator — owns actionLoading, snackbar, and all API call logic.
+// Composes: ClaimInfoGrid, ClaimActionBar, PendDialog, UpdateCcodeDialog.
+//
+// userName: optional prop, defaults to 'system'.
+// Replace default with value from auth context once auth is wired:
+//   <ClaimInformationPanel ... userName={authUser.name} />
+import { useState } from 'react';
+import { Alert, Box, Divider, Snackbar } from '@mui/material';
 import Collapsible from './shared/Collapsible';
+import ClaimInfoGrid from './ClaimInfoGrid';
+import ClaimActionBar from './ClaimActionBar';
+import PendDialog, { type PendMode } from './PendDialog';
+import UpdateCcodeDialog, { type UpdateCcodeForm } from './UpdateCcodeDialog';
 import { claimsApi } from '../services/claimsApi';
-import type { DenialReason, HaltedClaim } from '../types/claims';
-import React from 'react';
+import type { HaltedClaim } from '../types/claims';
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
-interface ClaimInformationPanelProps {
+interface Props {
   claim: HaltedClaim;
   onAction: (
-    action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim',
-    data?: Record<string, unknown>
+    action:
+      | 'updateCCode'
+      | 'pendClaim'
+      | 'pendNotes'
+      | 'denyClaim'
+      | 'resetClaim'
   ) => void;
+  /**
+   * Authenticated user name sent in API requests (userName / lockedByUser).
+   * Defaults to 'system'. Pass from auth context once available:
+   *   <ClaimInformationPanel userName={user.name} ... />
+   */
+  userName?: string;
 }
-
-interface ClaimField {
-  label: string;
-  key: keyof HaltedClaim;
-  span?: number;
-}
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const CLAIM_FIELDS: ClaimField[] = [
-  // Row 1
-  { label: 'Date of Receipt', key: 'dateOfReceipt' },
-  { label: 'Claim Type', key: 'claimType' },
-  { label: 'Claim Number', key: 'claimNumber' },
-  { label: 'Client Claim ID', key: 'clientClaimId' },
-  { label: 'Patient Name', key: 'name' },
-  { label: 'Group', key: 'group' },
-
-  // Row 2
-  { label: 'Policy ID', key: 'policy' },
-  { label: 'Gender', key: 'gender' },
-  { label: 'Service Date', key: 'serviceDate' },
-  { label: 'Insured ID', key: 'insuredId' },
-  { label: 'Payer', key: 'payer' },
-  { label: 'Date of Birth', key: 'dateOfBirth' },
-
-  // Row 3 — Address spans remaining columns
-  { label: 'Relationship', key: 'relationship' },
-  { label: 'Claim Stream', key: 'claimStream' },
-  { label: 'Client Code', key: 'ccode' },
-  { label: 'Sender', key: 'sender' },
-  { label: 'Address', key: 'address', span: 4 },
-];
-
-// ============================================================================
-// SUB-COMPONENT
-// ============================================================================
-
-function InfoField({ label, value }: { label: string; value: string }) {
-  return (
-    <Typography
-      variant='body2'
-      sx={{
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 0.5,
-        wordBreak: 'break-word',
-        minWidth: 0,
-      }}
-    >
-      <Box
-        component='span'
-        sx={{
-          fontWeight: 600,
-          color: 'text.secondary',
-          textTransform: 'uppercase',
-          fontSize: '0.7rem',
-          letterSpacing: '0.5px',
-          flexShrink: 0,
-        }}
-      >
-        {label}:
-      </Box>
-      <Box component='span' sx={{ fontWeight: 500, color: 'text.primary' }}>
-        {value || '-'}
-      </Box>
-    </Typography>
-  );
-}
-
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
 
 export default function ClaimInformationPanel({
   claim,
   onAction,
-}: ClaimInformationPanelProps) {
+  userName = 'system',
+}: Props) {
   // --------------------------------------------------------------------------
-  // Denial reasons — fetched from server on mount, never hardcoded.
+  // Shared state — single source of truth for in-flight action tracking.
+  // All child components receive anyLoading / actionLoading as props.
   // --------------------------------------------------------------------------
-  const [denialReasons, setDenialReasons] = useState<DenialReason[]>([]);
-  const [reasonsLoading, setReasonsLoading] = useState(true);
-  const [reasonsError, setReasonsError] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchReasons = async () => {
-      setReasonsLoading(true);
-      setReasonsError(false);
-      try {
-        const reasons = await claimsApi.getDenialReasons();
-        if (!cancelled) setDenialReasons(reasons);
-      } catch {
-        if (!cancelled) setReasonsError(true);
-      } finally {
-        if (!cancelled) setReasonsLoading(false);
-      }
-    };
-
-    void fetchReasons();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const anyLoading = actionLoading !== null;
 
   // --------------------------------------------------------------------------
-  // Per-claim denial reason selection — cached by claimNumber.
+  // Snackbar — shared feedback channel for all actions.
   // --------------------------------------------------------------------------
-  const selectionCache = useRef<Map<string, string>>(new Map());
-  const [denialReason, setDenialReason] = useState('');
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error';
+  }>({ open: false, message: '', severity: 'success' });
 
-  useEffect(() => {
-    setDenialReason(selectionCache.current.get(claim.claimNumber) ?? '');
-  }, [claim.claimNumber]);
+  const showSnackbar = (message: string, severity: 'success' | 'error') =>
+    setSnackbar({ open: true, message, severity });
 
-  const handleDenialReasonChange = (event: SelectChangeEvent) => {
-    const value = event.target.value;
-    setDenialReason(value);
-    selectionCache.current.set(claim.claimNumber, value);
+  // --------------------------------------------------------------------------
+  // Pend dialog open state + mode — dialog owns notes form state internally.
+  // --------------------------------------------------------------------------
+  const [pendOpen, setPendOpen] = useState(false);
+  const [pendMode, setPendMode] = useState<PendMode>('pendClaim');
+
+  const handlePendClick = (mode: PendMode) => {
+    setPendMode(mode);
+    setPendOpen(true);
+  };
+
+  const handlePendConfirm = (notes: string) => {
+    setActionLoading('pend');
+    claimsApi
+      .pendClaim({
+        claimNumber: claim.claimNumber,
+        claimType: claim.claimType,
+        userName,
+        pendNotes: notes,
+        pended: pendMode === 'pendClaim',
+        lockExpiration: 0, // int32 per swagger — no UI-driven value
+        network: claim.network,
+      })
+      .then(() => {
+        setPendOpen(false);
+        showSnackbar('Claim pended successfully.', 'success');
+        onAction(pendMode);
+      })
+      .catch(() =>
+        showSnackbar('Failed to pend claim. Please try again.', 'error')
+      )
+      .finally(() => setActionLoading(null));
   };
 
   // --------------------------------------------------------------------------
-  // Deny Claim validation modal
+  // Deny — validation dialog lives in ClaimActionBar (no form state needed).
   // --------------------------------------------------------------------------
-  const [denyValidationOpen, setDenyValidationOpen] = useState(false);
-
-  const handleDenyClaim = () => {
-    if (!denialReason) {
-      setDenyValidationOpen(true);
-      return;
-    }
-    onAction('denyClaim', { denialReason });
+  const handleDenySubmit = (reason: string) => {
+    setActionLoading('deny');
+    claimsApi
+      .denyClaim({
+        claimNumber: claim.claimNumber,
+        clientClaimNumber: claim.clientClaimId,
+        claimType: claim.claimType,
+        userName,
+        denialReason: reason,
+      })
+      .then(() => {
+        showSnackbar('Claim denied successfully.', 'success');
+        onAction('denyClaim');
+      })
+      .catch(() =>
+        showSnackbar('Failed to deny claim. Please try again.', 'error')
+      )
+      .finally(() => setActionLoading(null));
   };
 
   // --------------------------------------------------------------------------
-  // RENDER
+  // UpdateCcode dialog open state — dialog owns form state internally.
   // --------------------------------------------------------------------------
+  const [updateCcodeOpen, setUpdateCcodeOpen] = useState(false);
 
+  const handleUpdateCcodeConfirm = (form: UpdateCcodeForm) => {
+    setActionLoading('updateCcode');
+    claimsApi
+      .updateCcode({
+        policy: form.policy,
+        ccode: form.ccode,
+        policyAlias: form.policyAlias,
+        forceCcode: form.forceCcode,
+        serviceDate: claim.serviceDate,
+        receiptDate: claim.dateOfReceipt,
+        claimNumber: claim.claimNumber,
+        claimType: claim.claimType,
+        statusCode: '', // string per swagger — no UI-driven value
+        lockedByUser: userName,
+        eligMemberId: form.eligMemberId, // int64 per swagger
+        ccodeRecId: form.ccodeRecId, // int64 per swagger
+        forcePolicy: form.forcePolicy,
+      })
+      .then(() => {
+        setUpdateCcodeOpen(false);
+        showSnackbar('CCode updated successfully.', 'success');
+        onAction('updateCCode');
+      })
+      .catch(() =>
+        showSnackbar('Failed to update CCode. Please try again.', 'error')
+      )
+      .finally(() => setActionLoading(null));
+  };
+
+  // --------------------------------------------------------------------------
+  // Reset — confirmation dialog lives in ClaimActionBar (no form state).
+  // --------------------------------------------------------------------------
+  const handleResetSubmit = () => {
+    setActionLoading('reset');
+    claimsApi
+      .resetClaim({
+        claimType: claim.claimType,
+        network: claim.network,
+        statusCode: 0, // int64 per swagger — no UI-driven value
+        pended: false,
+      })
+      .then(() => {
+        showSnackbar('Claim reset successfully.', 'success');
+        onAction('resetClaim');
+      })
+      .catch(() =>
+        showSnackbar('Failed to reset claim. Please try again.', 'error')
+      )
+      .finally(() => setActionLoading(null));
+  };
+
+  // --------------------------------------------------------------------------
+  // Render
+  // --------------------------------------------------------------------------
   return (
     <>
       <Collapsible title='Claim Information' defaultExpanded={true}>
         <Box sx={{ p: 1.5 }}>
-          {/* Claim Information Grid */}
-          <Grid container spacing={1} sx={{ mb: 1 }}>
-            {CLAIM_FIELDS.map((field) => (
-              <Grid
-                key={field.key}
-                size={
-                  field.span
-                    ? { xs: 12, md: field.span }
-                    : { xs: 12, sm: 6, md: 2 }
-                }
-              >
-                <InfoField
-                  label={field.label}
-                  value={String(claim[field.key] ?? '-')}
-                />
-              </Grid>
-            ))}
-          </Grid>
-
-          {/* Action Buttons */}
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              flexWrap: 'wrap',
-              gap: 1,
-              alignItems: 'center',
-            }}
-          >
-            <Button
-              variant='contained'
-              color='primary'
-              size='small'
-              onClick={() => onAction('updateCCode')}
-              sx={{ minWidth: '60px', height: '26px', fontSize: '0.8125rem' }}
-            >
-              Update CCode
-            </Button>
-
-            <Button
-              variant='contained'
-              color='warning'
-              size='small'
-              onClick={() => onAction('pendClaim')}
-              sx={{ minWidth: '60px', height: '26px', fontSize: '0.8125rem' }}
-            >
-              Pend Claim
-            </Button>
-
-            <Button
-              variant='outlined'
-              color='warning'
-              size='small'
-              onClick={() => onAction('pendNotes')}
-              sx={{ minWidth: '60px', height: '26px', fontSize: '0.8125rem' }}
-            >
-              Pend Notes
-            </Button>
-
-            {/* Denial Reason — dynamically populated from server.
-                renderValue param is explicitly typed as `string` to prevent
-                MUI's loose generic from resolving it as `any`, which would
-                trigger no-unsafe-return on the second return path. */}
-            <FormControl
-              size='small'
-              sx={{ minWidth: 160 }}
-              disabled={reasonsLoading || reasonsError}
-            >
-              <Select
-                id='denial-reason'
-                value={denialReason}
-                onChange={handleDenialReasonChange}
-                displayEmpty
-                renderValue={(selected: string) => {
-                  if (!selected) {
-                    return (
-                      <Box
-                        component='span'
-                        sx={{ color: 'text.secondary', fontStyle: 'italic' }}
-                      >
-                        {reasonsLoading
-                          ? 'Loading\u2026'
-                          : reasonsError
-                            ? 'Unavailable'
-                            : 'Denial Reason'}
-                      </Box>
-                    );
-                  }
-                  return (
-                    denialReasons.find((r) => r.value === selected)?.label ??
-                    selected
-                  );
-                }}
-                startAdornment={
-                  reasonsLoading ? (
-                    <CircularProgress
-                      size={12}
-                      sx={{ mr: 0.5, flexShrink: 0 }}
-                    />
-                  ) : undefined
-                }
-                sx={{
-                  height: '26px',
-                  fontSize: '0.8125rem',
-                  '& .MuiSelect-select': {
-                    py: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                  },
-                }}
-              >
-                <MenuItem value=''>
-                  <em>Select Reason</em>
-                </MenuItem>
-                {denialReasons.map((reason) => (
-                  <MenuItem key={reason.value} value={reason.value}>
-                    {reason.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            <Button
-              variant='contained'
-              color='error'
-              size='small'
-              onClick={handleDenyClaim}
-              sx={{ minWidth: '60px', height: '26px', fontSize: '0.8125rem' }}
-            >
-              Deny Claim
-            </Button>
-          </Box>
+          <ClaimInfoGrid claim={claim} />
+          <Divider sx={{ my: 1 }} />
+          <ClaimActionBar
+            claim={claim}
+            anyLoading={anyLoading}
+            actionLoading={actionLoading}
+            onPendClick={handlePendClick}
+            onUpdateCcodeClick={() => setUpdateCcodeOpen(true)}
+            onDenySubmit={handleDenySubmit}
+            onResetSubmit={handleResetSubmit}
+          />
         </Box>
       </Collapsible>
 
-      {/* Denial Reason Validation Modal */}
-      <Dialog
-        open={denyValidationOpen}
-        onClose={() => setDenyValidationOpen(false)}
-        aria-labelledby='deny-validation-dialog-title'
-        aria-describedby='deny-validation-dialog-description'
-        PaperProps={{
-          elevation: 4,
-          sx: { borderRadius: 2, minWidth: 380, maxWidth: 440 },
-        }}
+      <PendDialog
+        open={pendOpen}
+        onClose={() => setPendOpen(false)}
+        mode={pendMode}
+        claimNumber={claim.claimNumber}
+        anyLoading={anyLoading}
+        isSubmitting={actionLoading === 'pend'}
+        onConfirm={handlePendConfirm}
+      />
+
+      <UpdateCcodeDialog
+        key={updateCcodeOpen ? claim.claimNumber : 'closed'}
+        open={updateCcodeOpen}
+        onClose={() => setUpdateCcodeOpen(false)}
+        claim={claim}
+        anyLoading={anyLoading}
+        isSubmitting={actionLoading === 'updateCcode'}
+        onConfirm={handleUpdateCcodeConfirm}
+      />
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            px: 3,
-            pt: 2.5,
-            pb: 1.5,
-          }}
+        <Alert
+          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
+          severity={snackbar.severity}
+          variant='filled'
+          sx={{ width: '100%' }}
         >
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              bgcolor: 'rgba(237, 108, 2, 0.12)',
-              flexShrink: 0,
-            }}
-          >
-            <WarningAmberRoundedIcon
-              sx={{ color: 'warning.dark', fontSize: 22 }}
-            />
-          </Box>
-          <DialogTitle
-            id='deny-validation-dialog-title'
-            sx={{
-              p: 0,
-              fontSize: '1rem',
-              fontWeight: 700,
-              color: 'text.primary',
-              lineHeight: 1.3,
-            }}
-          >
-            Select Denial Reason
-          </DialogTitle>
-        </Box>
-
-        <Divider />
-
-        <DialogContent sx={{ px: 3, py: 2 }}>
-          <DialogContentText
-            id='deny-validation-dialog-description'
-            sx={{
-              color: 'text.secondary',
-              fontSize: '0.875rem',
-              lineHeight: 1.6,
-            }}
-          >
-            A Denial Reason must be selected before denying a claim.
-          </DialogContentText>
-        </DialogContent>
-
-        <Divider />
-
-        <DialogActions sx={{ px: 3, py: 1.5 }}>
-          <Button
-            onClick={() => setDenyValidationOpen(false)}
-            variant='contained'
-            color='warning'
-            size='small'
-            autoFocus
-            sx={{ minWidth: 72, fontWeight: 600 }}
-          >
-            OK
-          </Button>
-        </DialogActions>
-      </Dialog>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </>
   );
 }

@@ -9,7 +9,7 @@ import { claimsApi } from '../services/claimsApi';
 import type { HaltedClaim } from '../types/claims';
 
 // ============================================================================
-// TabPanel - Removed overflow: 'auto', passes height constraint
+// TabPanel
 // ============================================================================
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -29,14 +29,7 @@ function TabPanel({ children, value, index }: TabPanelProps) {
       }}
     >
       {value === index && (
-        <Box
-          sx={{
-            height: '100%',
-            width: '100%',
-          }}
-        >
-          {children}
-        </Box>
+        <Box sx={{ height: '100%', width: '100%' }}>{children}</Box>
       )}
     </Box>
   );
@@ -54,11 +47,9 @@ export default function ClientManualMatchDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
 
-  // ── useCallback so useEffect dep array stays stable ─────────────────────
   const loadClaim = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
       if (claimId && !category && !claimType) {
         const claimData = await claimsApi.getClaimById(claimId);
@@ -66,21 +57,17 @@ export default function ClientManualMatchDashboard() {
       } else if (category && claimType) {
         const urlParams = new URLSearchParams(window.location.search);
         const claimStream = urlParams.get('stream');
-
         if (!claimStream) {
           setError('Missing claim stream parameter');
           return;
         }
-
         const result = await claimsApi.getNextClaimFromQueue({
           claimStream,
           category,
           claimType,
         });
-
         if (result.claim) {
           setClaim(result.claim);
-          // void: navigate returns Promise<void> in React Router v6
           void navigate(`/claim/${result.claim.claimNumber}`, {
             replace: true,
           });
@@ -98,20 +85,42 @@ export default function ClientManualMatchDashboard() {
     }
   }, [claimId, category, claimType, navigate]);
 
-  // loadClaim is stable via useCallback — safe to include in deps
   useEffect(() => {
     void loadClaim();
   }, [loadClaim]);
 
-  // ── Claim action handler ─────────────────────────────────────────────────
-  // Not async: no await expressions; removing async fixes no-misused-promises
-  // on the onAction prop and require-await on the function itself.
+  /**
+   * Post-action handler — called by ClaimInformationPanel after a successful API call.
+   *
+   * pend/deny/reset: navigate back to /manual-review so the user can pick the
+   *   next claim. The pended/denied claim is no longer actionable in this session.
+   *
+   * updateCCode: stay on the current claim — the user may want to continue
+   *   reviewing after a CCode update.
+   *
+   * resetClaim: navigate back to /manual-review — reset clears the search state
+   *   so the current context is stale.
+   */
   const handleClaimAction = (
-    action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim',
-    data?: Record<string, unknown>
+    action:
+      | 'updateCCode'
+      | 'pendClaim'
+      | 'pendNotes'
+      | 'denyClaim'
+      | 'resetClaim'
   ) => {
-    console.warn(`Claim Action: ${action}`, data);
-    alert(`Action "${action}" triggered.`);
+    switch (action) {
+      case 'pendClaim':
+      case 'pendNotes':
+      case 'denyClaim':
+      case 'resetClaim':
+        void navigate('/manual-review');
+        break;
+      case 'updateCCode':
+        // Stay — reload claim to reflect updated CCode
+        void loadClaim();
+        break;
+    }
   };
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -158,12 +167,10 @@ export default function ClientManualMatchDashboard() {
         overflow: 'hidden',
       }}
     >
-      {/* Claim Information Panel */}
       <Box sx={{ flexShrink: 0 }}>
         <ClaimInformationPanel claim={claim} onAction={handleClaimAction} />
       </Box>
 
-      {/* Tabbed Interface */}
       <Box
         sx={{
           flex: 1,
@@ -176,7 +183,6 @@ export default function ClientManualMatchDashboard() {
           overflow: 'hidden',
         }}
       >
-        {/* Tab Headers */}
         <Box
           sx={{
             borderBottom: 1,
@@ -205,7 +211,6 @@ export default function ClientManualMatchDashboard() {
           </Tabs>
         </Box>
 
-        {/* Tab Content */}
         <Box
           sx={{
             flex: 1,
@@ -217,7 +222,6 @@ export default function ClientManualMatchDashboard() {
           <TabPanel value={activeTab} index={0}>
             <MemberSearchPanel network={claim.network} ccode={claim.ccode} />
           </TabPanel>
-
           <TabPanel value={activeTab} index={1}>
             <EmployerGroupSearchPanel
               network={claim.network}

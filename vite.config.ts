@@ -11,6 +11,25 @@
 //   requiredVersion uses >= ranges so minor version differences between host
 //   (19.2.0) and remotes (19.1.1) don't cause federation warnings or
 //   unpredictable singleton resolution.
+//
+// Proxy — two live services, one proxy rule:
+//
+//   The live API exposes two separate services on the same host:
+//     claimsearchservice — /api/clientmatch/* and /api/clientMatch/*
+//     claim-match        — /api/client-match/*
+//
+//   A single proxy rule on '/api/client' catches all three path variants.
+//   The rewrite function distinguishes the two services by inspecting the
+//   path prefix and prepends the correct service segment:
+//     /api/client-match/... → /claim-match/api/client-match/...
+//     /api/clientmatch/...  → /claimsearchservice/api/clientmatch/...
+//     /api/clientMatch/...  → /claimsearchservice/api/clientMatch/...
+//
+//   In mock mode paths pass through unchanged — the mock server handles
+//   all three prefixes directly.
+//
+//   In Docker/OKE the Vite dev server is not running; nginx/ingress handles
+//   service routing instead. No change required there.
 
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -18,6 +37,8 @@ import { federation } from '@module-federation/vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
+
+  const isLive = env.VITE_API_MODE === 'live';
 
   const memberSearchBase =
     env.VITE_MEMBER_SEARCH_URL ?? 'http://localhost:3002/ucp-member-search-ui';
@@ -60,7 +81,30 @@ export default defineConfig(({ mode }) => {
 
     server: {
       port: 5173,
-      // No proxy — claimsApi.ts uses absolute VITE_MOCK_API_BASE_URL directly.
+      proxy: {
+        // Single rule on '/api/client' catches all claims API paths:
+        //   /api/client-match/*    — claim-match service
+        //   /api/clientmatch/*     — claimsearchservice
+        //   /api/clientMatch/*     — claimsearchservice (case variant)
+        //
+        // In mock mode: paths forwarded as-is to mock server.
+        // In live mode: rewrite adds the correct service path segment.
+        '/api/client': {
+          target: isLive ? env.VITE_API_BASE_URL : env.VITE_MOCK_API_BASE_URL,
+          changeOrigin: true,
+          secure: false,
+          rewrite: isLive
+            ? (path: string) => {
+                // claim-match service: /api/client-match/* paths
+                if (path.startsWith('/api/client-match')) {
+                  return `/claim-match${path}`;
+                }
+                // claimsearchservice: /api/clientmatch/* and /api/clientMatch/*
+                return `/claimsearchservice${path}`;
+              }
+            : (path: string) => path,
+        },
+      },
     },
 
     build: {
