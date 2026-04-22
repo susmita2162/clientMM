@@ -149,28 +149,6 @@ export default function ClaimInformationPanel({
   };
 
   // --------------------------------------------------------------------------
-  // Reset — confirmation dialog lives in ClaimActionBar (no form state).
-  // --------------------------------------------------------------------------
-  const handleResetSubmit = () => {
-    setActionLoading('reset');
-    claimsApi
-      .resetClaim({
-        claimType: claim.claimType,
-        network: claim.network,
-        statusCode: 0, // int64 per swagger — no UI-driven value
-        pended: false,
-      })
-      .then(() => {
-        showSnackbar('Claim reset successfully.', 'success');
-        onAction('resetClaim');
-      })
-      .catch(() =>
-        showSnackbar('Failed to reset claim. Please try again.', 'error')
-      )
-      .finally(() => setActionLoading(null));
-  };
-
-  // --------------------------------------------------------------------------
   // Render
   // --------------------------------------------------------------------------
   return (
@@ -186,7 +164,6 @@ export default function ClaimInformationPanel({
             onPendClick={handlePendClick}
             onUpdateCcodeClick={() => setUpdateCcodeOpen(true)}
             onDenySubmit={handleDenySubmit}
-            onResetSubmit={handleResetSubmit}
           />
         </Box>
       </Collapsible>

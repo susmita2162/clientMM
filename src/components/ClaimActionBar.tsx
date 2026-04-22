@@ -2,14 +2,13 @@
 // Action buttons row for ClaimInformationPanel.
 //
 // Responsibilities:
-//   - Renders all 5 action buttons
+//   - Renders action buttons: Update CCode, Pend Claim, Pend Notes, Deny Claim
 //   - Owns denial reasons fetch (sole consumer)
 //   - Owns denial reason selection state + per-claim cache
 //   - Owns deny validation dialog (no denial reason selected guard)
-//   - Owns reset confirmation dialog (no form state — just a confirm step)
 //
 // API call logic lives in ClaimInformationPanel.
-// onDenySubmit / onResetSubmit are called here; parent handles API + snackbar.
+// onDenySubmit is called here; parent handles API + snackbar.
 import { useState, useEffect, useRef } from 'react';
 import {
   Box,
@@ -38,7 +37,6 @@ interface Props {
   onPendClick: (mode: PendMode) => void;
   onUpdateCcodeClick: () => void;
   onDenySubmit: (reason: string) => void;
-  onResetSubmit: () => void;
 }
 
 export default function ClaimActionBar({
@@ -48,7 +46,6 @@ export default function ClaimActionBar({
   onPendClick,
   onUpdateCcodeClick,
   onDenySubmit,
-  onResetSubmit,
 }: Props) {
   // --------------------------------------------------------------------------
   // Denial reasons — fetched once on mount, never hardcoded.
@@ -105,11 +102,6 @@ export default function ClaimActionBar({
     }
     onDenySubmit(denialReason);
   };
-
-  // --------------------------------------------------------------------------
-  // Reset confirmation dialog — simple confirm step, no form.
-  // --------------------------------------------------------------------------
-  const [resetDialogOpen, setResetDialogOpen] = useState(false);
 
   // --------------------------------------------------------------------------
   // Render
@@ -173,22 +165,6 @@ export default function ClaimActionBar({
           sx={BTN}
         >
           Pend Notes
-        </Button>
-
-        <Button
-          variant='outlined'
-          color='secondary'
-          size='small'
-          disabled={anyLoading}
-          onClick={() => setResetDialogOpen(true)}
-          startIcon={
-            actionLoading === 'reset' ? (
-              <CircularProgress size={12} color='inherit' />
-            ) : undefined
-          }
-          sx={BTN}
-        >
-          Reset
         </Button>
 
         {/* Denial Reason dropdown */}
@@ -337,96 +313,6 @@ export default function ClaimActionBar({
             sx={{ minWidth: 72, fontWeight: 600 }}
           >
             OK
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Reset confirmation dialog */}
-      <Dialog
-        open={resetDialogOpen}
-        onClose={() => {
-          if (!anyLoading) setResetDialogOpen(false);
-        }}
-        maxWidth='xs'
-        fullWidth
-        PaperProps={{ elevation: 4, sx: { borderRadius: 2 } }}
-      >
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            px: 3,
-            pt: 2.5,
-            pb: 1.5,
-          }}
-        >
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              bgcolor: 'rgba(237, 108, 2, 0.12)',
-              flexShrink: 0,
-            }}
-          >
-            <WarningAmberRoundedIcon
-              sx={{ color: 'warning.dark', fontSize: 22 }}
-            />
-          </Box>
-          <DialogTitle
-            sx={{
-              p: 0,
-              fontSize: '1rem',
-              fontWeight: 700,
-              color: 'text.primary',
-            }}
-          >
-            Reset Claim
-          </DialogTitle>
-        </Box>
-        <Divider />
-        <DialogContent sx={{ px: 3, py: 2 }}>
-          <DialogContentText
-            sx={{
-              color: 'text.secondary',
-              fontSize: '0.875rem',
-              lineHeight: 1.6,
-            }}
-          >
-            This will reset the group data search info for claim{' '}
-            <strong>{claim.claimNumber}</strong>. Are you sure?
-          </DialogContentText>
-        </DialogContent>
-        <Divider />
-        <DialogActions sx={{ px: 3, py: 1.5, gap: 1 }}>
-          <Button
-            onClick={() => setResetDialogOpen(false)}
-            disabled={anyLoading}
-            size='small'
-            variant='outlined'
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              setResetDialogOpen(false);
-              onResetSubmit();
-            }}
-            disabled={anyLoading}
-            size='small'
-            variant='contained'
-            color='warning'
-            startIcon={
-              actionLoading === 'reset' ? (
-                <CircularProgress size={12} color='inherit' />
-              ) : undefined
-            }
-          >
-            {actionLoading === 'reset' ? 'Resetting...' : 'Reset'}
           </Button>
         </DialogActions>
       </Dialog>
