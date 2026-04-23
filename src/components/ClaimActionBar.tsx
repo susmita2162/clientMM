@@ -1,14 +1,13 @@
 // src/components/ClaimActionBar.tsx
 // Action buttons row for ClaimInformationPanel.
 //
-// Responsibilities:
-//   - Renders action buttons: Update CCode, Pend Claim, Pend Notes, Deny Claim
-//   - Owns denial reasons fetch (sole consumer)
-//   - Owns denial reason selection state + per-claim cache
-//   - Owns deny validation dialog (no denial reason selected guard)
+// Button state rules (driven by isPended prop):
+//   isPended === false (pendedClaim "N"): Pend Claim ENABLED, Pend Notes DISABLED
+//   isPended === true  (pendedClaim "Y"): Pend Claim DISABLED, Pend Notes ENABLED
 //
-// API call logic lives in ClaimInformationPanel.
-// onDenySubmit is called here; parent handles API + snackbar.
+// This reflects the workflow: a halted claim arrives un-pended; the user
+// pends it first (Pend Claim), after which they can update notes (Pend Notes).
+
 import { useState, useEffect, useRef } from 'react';
 import {
   Box,
@@ -34,6 +33,13 @@ interface Props {
   claim: HaltedClaim;
   anyLoading: boolean;
   actionLoading: string | null;
+  /**
+   * Whether the claim is currently pended (pendedClaim === "Y").
+   * Controls which pend button is enabled:
+   *   false → Pend Claim enabled, Pend Notes disabled
+   *   true  → Pend Claim disabled, Pend Notes enabled
+   */
+  isPended: boolean;
   onPendClick: (mode: PendMode) => void;
   onUpdateCcodeClick: () => void;
   onDenySubmit: (reason: string) => void;
@@ -43,12 +49,13 @@ export default function ClaimActionBar({
   claim,
   anyLoading,
   actionLoading,
+  isPended,
   onPendClick,
   onUpdateCcodeClick,
   onDenySubmit,
 }: Props) {
   // --------------------------------------------------------------------------
-  // Denial reasons — fetched once on mount, never hardcoded.
+  // Denial reasons
   // --------------------------------------------------------------------------
   const [denialReasons, setDenialReasons] = useState<DenialReason[]>([]);
   const [reasonsLoading, setReasonsLoading] = useState(true);
@@ -75,7 +82,7 @@ export default function ClaimActionBar({
   }, []);
 
   // --------------------------------------------------------------------------
-  // Denial reason selection — cached per claimNumber across claim navigation.
+  // Denial reason selection — cached per claim number
   // --------------------------------------------------------------------------
   const selectionCache = useRef<Map<string, string>>(new Map());
   const [denialReason, setDenialReason] = useState('');
@@ -91,7 +98,7 @@ export default function ClaimActionBar({
   };
 
   // --------------------------------------------------------------------------
-  // Deny validation dialog — shown when Deny Claim is clicked with no reason.
+  // Deny validation dialog — no reason selected
   // --------------------------------------------------------------------------
   const [denyValidationOpen, setDenyValidationOpen] = useState(false);
 
@@ -140,11 +147,15 @@ export default function ClaimActionBar({
           Update CCode
         </Button>
 
+        {/*
+          Pend Claim — enabled when claim is NOT yet pended.
+          Disabled once claim has been pended (user should use Pend Notes instead).
+        */}
         <Button
           variant='contained'
           color='warning'
           size='small'
-          disabled={anyLoading}
+          disabled={anyLoading || isPended}
           onClick={() => onPendClick('pendClaim')}
           startIcon={
             actionLoading === 'pend' ? (
@@ -156,11 +167,15 @@ export default function ClaimActionBar({
           Pend Claim
         </Button>
 
+        {/*
+          Pend Notes — enabled only after claim has been pended.
+          Allows updating notes on an already-pended claim.
+        */}
         <Button
           variant='outlined'
           color='warning'
           size='small'
-          disabled={anyLoading}
+          disabled={anyLoading || !isPended}
           onClick={() => onPendClick('pendNotes')}
           sx={BTN}
         >
