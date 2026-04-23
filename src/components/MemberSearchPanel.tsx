@@ -1,37 +1,53 @@
-// CLAIMS-SUM (Host)
 // src/components/MemberSearchPanel.tsx
-// ============================================================================
-// Changes from original (minimal):
-//   1. mode="embedded" added to <MemberSearchWidget /> call — this is the
-//      sole trigger for the embedded field set in the MFE.
-//   2. Suspense fallback layout fixed: CircularProgress and text were
-//      rendering side-by-side (missing flexDirection: 'column' on parent).
-//      Extracted as MemberSearchFallback for clarity.
-//
-// Props interface: UNCHANGED — still accepts only network and ccode.
-// ClientManualMatchDashboard.tsx: NO CHANGES REQUIRED.
-// ============================================================================
 
 import { Suspense, lazy } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
+import type { MemberSearchField } from '../utils/scenarioFieldConfig';
+
+interface MemberSearchWidgetProps {
+  network: string;
+  ccode: string;
+  onMemberSelected: (member: unknown) => void;
+  autoSearch?: boolean;
+  mode?: string;
+  insuredId?: string;
+  serviceDate?: string;
+  firstName?: string;
+  lastName?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  scenario?: string;
+  focusedFields?: MemberSearchField[];
+  highlightedFields?: MemberSearchField[];
+}
 
 const MemberSearchWidget = lazy(
   () => import('memberSearchApp/MemberSearchWidget')
-);
+) as React.LazyExoticComponent<React.ComponentType<MemberSearchWidgetProps>>;
 
-interface MemberSearchPanelProps {
+export interface MemberSearchPanelProps {
   network: string;
   ccode: string;
+  insuredId?: string;
+  serviceDate?: string;
+  insuredFirstName?: string;
+  insuredLastName?: string;
+  insuredDob?: string;
+  insuredGender?: string;
+  scenario?: string;
+  focusedFields?: MemberSearchField[];
+  highlightedFields?: MemberSearchField[];
+  /** Called with ccode when the user selects a member in the MFE. */
+  onCcodeSelected?: (ccode: string) => void;
 }
 
-// ── Suspense fallback — extracted for readability, fixes layout bug ────────
 function MemberSearchFallback() {
   return (
     <Box
       sx={{
         display: 'flex',
-        flexDirection: 'column', // was missing — caused side-by-side layout
+        flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '400px',
@@ -46,17 +62,33 @@ function MemberSearchFallback() {
   );
 }
 
-// ============================================================================
-// Component
-// ============================================================================
+/** Extract ccode from the MFE member selection payload. */
+function extractCcode(member: unknown): string {
+  if (!member || typeof member !== 'object') return '';
+  const m = member as Record<string, unknown>;
+  const value = m.ccode;
+  return typeof value === 'string' ? value : '';
+}
+
 export default function MemberSearchPanel({
   network,
   ccode,
+  insuredId,
+  serviceDate,
+  insuredFirstName,
+  insuredLastName,
+  insuredDob,
+  insuredGender,
+  scenario,
+  focusedFields,
+  highlightedFields,
+  onCcodeSelected,
 }: MemberSearchPanelProps) {
-  // Callback from the remote MFE — shape is owned by that app,
-  // so `unknown` is the correct type here. Unchanged from original.
   const handleMemberSelected = (member: unknown) => {
-    console.warn('Member selected in host:', member);
+    if (onCcodeSelected) {
+      const extracted = extractCcode(member);
+      if (extracted) onCcodeSelected(extracted);
+    }
   };
 
   return (
@@ -76,8 +108,16 @@ export default function MemberSearchPanel({
             ccode={ccode}
             onMemberSelected={handleMemberSelected}
             autoSearch={true}
-            // mode="embedded" is the only addition to this call
             mode='embedded'
+            insuredId={insuredId}
+            serviceDate={serviceDate}
+            firstName={insuredFirstName}
+            lastName={insuredLastName}
+            dateOfBirth={insuredDob}
+            gender={insuredGender}
+            scenario={scenario}
+            focusedFields={focusedFields}
+            highlightedFields={highlightedFields}
           />
         </Suspense>
       </MfeErrorBoundary>
