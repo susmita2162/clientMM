@@ -1,16 +1,89 @@
 // src/pages/ClientManualMatchDashboard.tsx
-import { useCallback, useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Box, Alert, CircularProgress, Tabs, Tab } from '@mui/material';
+//
+// Two valid entry modes — no other entry path exists:
+//
+//   1. SEARCH RESULT  — /claim/:claimId  (route param is for the URL only)
+//      ManualReviewDashboard navigates here with { state: { claim: HaltedClaim } }
+//      after a successful findByClaimId / findByClientClaimId call.
+//      The claim is read directly from router state — no API call.
+//      After any action the user is returned to /manual-review.
+//
+//   2. QUEUE MODE  — /claim/:category/:formType/next?stream=<claimStream>
+//      ClaimsTable navigates here when the user clicks a count cell.
+//      POST /nextHalted fetches the first available halted claim.
+//      After every action the next halted claim is loaded automatically.
+//      When the queue is empty an informational message is shown.
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Tab,
+  Tabs,
+  Typography,
+} from '@mui/material';
 import ClaimInformationPanel from '../components/ClaimInformationPanel';
 import MemberSearchPanel from '../components/MemberSearchPanel';
 import EmployerGroupSearchPanel from '../components/EmployerGroupSearchPanel';
 import { claimsApi } from '../services/claimsApi';
+import { getScenarioConfig } from '../utils/scenarioFieldConfig';
 import type { HaltedClaim, NextHaltedClaimResponse } from '../types/claims';
 
-// ============================================================================
-// TabPanel
-// ============================================================================
+// ── Queue context ─────────────────────────────────────────────────────────────
+
+interface QueueContext {
+  claimType: string; // 'HCFA' | 'UB' — uppercase
+  pended: boolean;
+  network: string;
+}
+
+// ── Adapter: NextHaltedClaimResponse → HaltedClaim ───────────────────────────
+// Keeps ClaimInformationPanel / ClaimInfoGrid unchanged.
+
+function adaptNextHaltedToHaltedClaim(r: NextHaltedClaimResponse): HaltedClaim {
+  return {
+    claimNumber: r.claimNumber ?? '',
+    clientClaimId: r.clientClaimId ?? '',
+    claimStream: r.claimStream ?? '',
+    claimType: (r.claimType as 'HCFA' | 'UB') ?? 'HCFA',
+    dateOfReceipt: r.receiptDate ?? '',
+    serviceDate: r.dateOfService ?? '',
+    policy: r.policyNum ?? '',
+    insuredId: r.insuredId ?? '',
+    ccode: r.ccode ?? '',
+    group: r.grpName ?? '',
+    payer: r.payerName ?? '',
+    sender: r.sender ?? '',
+    network: r.network ?? '',
+    name:
+      r.insuredFullName ||
+      [r.insuredFirstName, r.insuredLastName].filter(Boolean).join(' '),
+    dateOfBirth: r.insuredDob || r.memberDob || '',
+    gender: r.insuredGender ?? '',
+    relationship: r.relationship ?? '',
+    address: [r.insuredAddress1, r.insuredCityStateZip]
+      .filter(Boolean)
+      .join(', '),
+    category: r.pendedClaim === 'Y' ? 'MANUAL_REVIEW_PENDED' : 'MANUAL_REVIEW',
+    status: 'HALTED',
+    lockedBy: null,
+    lockedAt: null,
+    pendedClaim: r.pendedClaim ?? 'N',
+    scenario: r.scenario ?? '',
+    matchType: r.matchType ?? 'HALT',
+  };
+}
+
+// ── TabPanel ──────────────────────────────────────────────────────────────────
+
 interface TabPanelProps {
   children?: React.ReactNode;
   value: number;
@@ -24,7 +97,7 @@ function TabPanel({ children, value, index }: TabPanelProps) {
       hidden={value !== index}
       sx={{
         height: '100%',
-        display: value === index ? 'flex' : 'none',
+        display: value !== index ? 'none' : 'flex',
         flexDirection: 'column',
       }}
     >
@@ -35,160 +108,124 @@ function TabPanel({ children, value, index }: TabPanelProps) {
   );
 }
 
-// ============================================================================
-// MAPPER
-//
-// NextHaltedClaimResponse (live API flat shape) → HaltedClaim (UI shape).
-//
-// WHY: getNextHaltedClaim returns NextHaltedClaimResponse with field names
-// that differ from HaltedClaim (e.g. payerName vs payer, policyNum vs policy).
-// ClaimInformationPanel and setClaim both expect HaltedClaim — mapping here
-// keeps all other files unchanged.
-//
-// Field mapping (live → HaltedClaim):
-//   insuredFullName     → name
-//   insuredGender       → gender
-//   insuredDob          → dateOfBirth
-//   insuredAddress1     → address
-//   payerName           → payer
-//   policyNum           → policy
-//   grpName             → group
-//   dateOfService       → serviceDate
-//   receiptDate         → dateOfReceipt
-//   claimType (string)  → claimType (cast to union)
-//   category  (string)  → category  (cast to union)
-//   status    (string)  → status    (cast to union)
-// ============================================================================
-function mapToHaltedClaim(r: NextHaltedClaimResponse): HaltedClaim {
-  return {
-    claimNumber: r.claimNumber,
-    clientClaimId: r.clientClaimId,
-    claimStream: r.claimStream,
-    claimType: r.claimType as HaltedClaim['claimType'],
-    dateOfReceipt: r.receiptDate,
-    serviceDate: r.dateOfService,
-    policy: r.policyNum,
-    insuredId: r.insuredId,
-    ccode: r.ccode,
-    group: r.grpName,
-    payer: r.payerName,
-    sender: r.sender,
-    network: r.network,
-    name: r.insuredFullName,
-    dateOfBirth: r.insuredDob,
-    gender: r.insuredGender,
-    relationship: r.relationship,
-    address: r.insuredAddress1,
-    category: r.category as HaltedClaim['category'],
-    status: r.status as HaltedClaim['status'],
-    lockedBy: null,
-    lockedAt: null,
-  };
-}
-
-// ============================================================================
-// COMPONENT
-// ============================================================================
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ClientManualMatchDashboard() {
-  const { claimId, category, claimType } = useParams<{
+  // Route params — :claimId is present in mode 1 (search result URL),
+  // :category + :formType are present in mode 2 (queue).
+  const { category, formType } = useParams<{
     claimId?: string;
     category?: string;
-    claimType?: string;
+    formType?: string;
   }>();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  // ── State ──────────────────────────────────────────────────────────────────
+
+  // claim is always stored as HaltedClaim — both entry modes converge here.
   const [claim, setClaim] = useState<HaltedClaim | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [queueEmpty, setQueueEmpty] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
 
-  const loadClaim = useCallback(async () => {
+  // CCode selected in a MFE panel — passed to UpdateCcodeDialog.
+  // Reset on every new claim load.
+  const [selectedCcode, setSelectedCcode] = useState('');
+
+  const queueContextRef = useRef<QueueContext | null>(null);
+  const hasInitialized = useRef(false);
+
+  // ── Queue loader ───────────────────────────────────────────────────────────
+
+  const loadNextHaltedClaim = useCallback(async (ctx: QueueContext) => {
     setLoading(true);
     setError(null);
+    setQueueEmpty(false);
+    setSelectedCcode('');
     try {
-      if (claimId && !category && !claimType) {
-        // Direct access — load by claim number (mock path, typed as HaltedClaim)
-        const claimData = await claimsApi.getClaimById(claimId);
-        setClaim(claimData);
-      } else if (category && claimType) {
-        // Queue-based access — use live endpoint
-        const urlParams = new URLSearchParams(window.location.search);
-        const claimStream = urlParams.get('stream');
-        if (!claimStream) {
-          setError('Missing claim stream parameter');
-          return;
-        }
+      const response = await claimsApi.getNextHaltedClaim({
+        claimType: ctx.claimType,
+        pended: ctx.pended,
+        network: ctx.network,
+        lockedByUser: 'SYSTEM', // replace with auth user when available
+        lockExpiration: 30,
+      });
 
-        // pended: derived from the category URL segment.
-        // MANUAL_REVIEW_PENDED routes → pended=true; MANUAL_REVIEW → false.
-        const pended = category.toUpperCase().includes('PENDED');
-
-        const response = await claimsApi.getNextHaltedClaim({
-          lockedByUser: 'system', // replace with auth user once auth is wired
-          lockExpiration: 0, // int32 per swagger — no UI-driven value
-          network: claimStream, // claimStream IS the network identifier
-          pended,
-          claimType,
-        });
-
-        if (response) {
-          // Map live response shape → HaltedClaim so all downstream
-          // components (ClaimInformationPanel etc.) remain unchanged.
-          const mapped = mapToHaltedClaim(response);
-          setClaim(mapped);
-          void navigate(`/claim/${response.claimNumber}`, { replace: true });
-        } else {
-          setError('No claims available in this queue');
-        }
+      if (response) {
+        setClaim(adaptNextHaltedToHaltedClaim(response));
+        setActiveTab(0);
       } else {
-        setError('Invalid route parameters');
+        setQueueEmpty(true);
       }
-    } catch (err: unknown) {
-      console.error('Error loading claim:', err);
-      setError('Failed to load claim. Please try again.');
+    } catch {
+      setError('Failed to load next claim. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [claimId, category, claimType, navigate]);
+  }, []);
+
+  // ── Initialisation ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    void loadClaim();
-  }, [loadClaim]);
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
 
-  /**
-   * Post-action handler — called by ClaimInformationPanel after a
-   * successful API call.
-   *
-   * pend / deny / resetClaim → navigate to /manual-review.
-   *   Claim is no longer actionable in this session.
-   *
-   * updateCCode → reload claim in place.
-   *   User may want to continue reviewing after updating the CCode.
-   */
-  const handleClaimAction = (
-    action:
-      | 'updateCCode'
-      | 'pendClaim'
-      | 'pendNotes'
-      | 'denyClaim'
-      | 'resetClaim'
-  ) => {
-    switch (action) {
-      case 'pendClaim':
-      case 'pendNotes':
-      case 'denyClaim':
-      case 'resetClaim':
-        void navigate('/manual-review');
-        break;
-      case 'updateCCode':
-        void loadClaim();
-        break;
+    // MODE 1 — search result: claim already in router state, no API call.
+    const stateClaim = (location.state as { claim?: HaltedClaim } | null)
+      ?.claim;
+    if (stateClaim) {
+      setClaim(stateClaim);
+      setLoading(false);
+      return;
     }
-  };
 
-  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue);
-  };
+    // MODE 2 — queue: category + formType params present.
+    if (category && formType) {
+      const claimStream = searchParams.get('stream') ?? '';
+      const ctx: QueueContext = {
+        claimType: formType.toUpperCase(), // 'hcfa' → 'HCFA'
+        pended: category === 'manual-pended',
+        network: claimStream,
+      };
+      queueContextRef.current = ctx;
+      void loadNextHaltedClaim(ctx);
+      return;
+    }
+
+    // Neither — invalid navigation.
+    setError(
+      'No claim data available. Please search for a claim or select one from the dashboard.'
+    );
+    setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Action handler ─────────────────────────────────────────────────────────
+
+  const handleClaimAction = useCallback(
+    (
+      _action:
+        | 'updateCCode'
+        | 'pendClaim'
+        | 'pendNotes'
+        | 'denyClaim'
+        | 'resetClaim'
+    ) => {
+      if (queueContextRef.current) {
+        // Queue mode — load the next claim for every action type.
+        void loadNextHaltedClaim(queueContextRef.current);
+      } else {
+        // Search result mode — return to dashboard after action.
+        void navigate('/manual-review');
+      }
+    },
+    [loadNextHaltedClaim, navigate]
+  );
+
+  // ── Loading ───────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -210,13 +247,63 @@ export default function ClientManualMatchDashboard() {
     );
   }
 
-  if (error || !claim) {
+  // ── Queue empty ───────────────────────────────────────────────────────────
+
+  if (queueEmpty) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity='error'>{error ?? 'Claim not found'}</Alert>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '400px',
+          gap: 2,
+          p: 3,
+        }}
+      >
+        <Alert severity='info' sx={{ maxWidth: 480, width: '100%' }}>
+          <Typography variant='subtitle1' fontWeight={600} gutterBottom>
+            Queue Complete
+          </Typography>
+          <Typography variant='body2'>
+            There are no more halted claims available in this queue. All claims
+            have been processed or are locked by another user.
+          </Typography>
+        </Alert>
+        <Button
+          variant='contained'
+          onClick={() => void navigate('/manual-review')}
+        >
+          Return to Manual Review Dashboard
+        </Button>
       </Box>
     );
   }
+
+  // ── Error ─────────────────────────────────────────────────────────────────
+
+  if (error || !claim) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity='error' sx={{ mb: 2 }}>
+          {error ?? 'Claim not found.'}
+        </Alert>
+        {/* <Button
+          variant='outlined'
+          onClick={() => void navigate('/manual-review')}
+        >
+          Return to Manual Review Dashboard
+        </Button> */}
+      </Box>
+    );
+  }
+
+  // ── Scenario field config ─────────────────────────────────────────────────
+
+  const scenarioConfig = getScenarioConfig(claim.scenario ?? '');
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <Box
@@ -231,7 +318,11 @@ export default function ClientManualMatchDashboard() {
       }}
     >
       <Box sx={{ flexShrink: 0 }}>
-        <ClaimInformationPanel claim={claim} onAction={handleClaimAction} />
+        <ClaimInformationPanel
+          claim={claim}
+          onAction={handleClaimAction}
+          selectedCcode={selectedCcode || undefined}
+        />
       </Box>
 
       <Box
@@ -256,7 +347,7 @@ export default function ClientManualMatchDashboard() {
         >
           <Tabs
             value={activeTab}
-            onChange={handleTabChange}
+            onChange={(_, v: number) => setActiveTab(v)}
             sx={{
               minHeight: 36,
               '& .MuiTab-root': {
@@ -283,12 +374,33 @@ export default function ClientManualMatchDashboard() {
           }}
         >
           <TabPanel value={activeTab} index={0}>
-            <MemberSearchPanel network={claim.network} ccode={claim.ccode} />
+            <MemberSearchPanel
+              network={claim.network}
+              ccode={claim.ccode}
+              insuredId={claim.insuredId}
+              serviceDate={claim.serviceDate}
+              insuredFirstName={claim.name.split(' ')[0]}
+              insuredLastName={claim.name.split(' ').slice(1).join(' ')}
+              insuredDob={claim.dateOfBirth}
+              insuredGender={claim.gender}
+              scenario={claim.scenario}
+              focusedFields={scenarioConfig?.memberFocused}
+              highlightedFields={scenarioConfig?.memberHighlighted}
+              onCcodeSelected={setSelectedCcode}
+            />
           </TabPanel>
+
           <TabPanel value={activeTab} index={1}>
             <EmployerGroupSearchPanel
               network={claim.network}
               ccode={claim.ccode}
+              policyNum={claim.policy}
+              grpName={claim.group}
+              payerName={claim.payer}
+              scenario={claim.scenario}
+              focusedFields={scenarioConfig?.employerFocused}
+              highlightedFields={scenarioConfig?.employerHighlighted}
+              onCcodeSelected={setSelectedCcode}
             />
           </TabPanel>
         </Box>
