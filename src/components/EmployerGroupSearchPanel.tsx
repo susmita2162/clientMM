@@ -1,31 +1,43 @@
-// CLAIMS-SUM (Host)
 // src/components/EmployerGroupSearchPanel.tsx
-// ============================================================================
-// Changes from original:
-//   1. MfeErrorBoundary added — catches MFE load failures (remote app down,
-//      network error, bundle unavailable) and shows a user-friendly message.
-//   2. Suspense fallback layout fixed — CircularProgress and text were
-//      rendering side-by-side (flexDirection: 'column' was missing on parent).
-//      Extracted as EmployerGroupSearchFallback for clarity.
-//
-// Props interface: UNCHANGED — still accepts only network and ccode.
-// ClientManualMatchDashboard.tsx: NO CHANGES REQUIRED.
-// ============================================================================
 
 import { Suspense, lazy } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
+import type { EmployerGroupField } from '../utils/scenarioFieldConfig';
+
+interface EmployerGroupSearchWidgetProps {
+  ccode: string;
+  network: string;
+  onEmployerGroupSelected: (group: unknown) => void;
+  onClientCodeSelected: (client: unknown) => void;
+  autoSearch?: boolean;
+  policyNum?: string;
+  grpName?: string;
+  payerName?: string;
+  scenario?: string;
+  focusedFields?: EmployerGroupField[];
+  highlightedFields?: EmployerGroupField[];
+}
 
 const EmployerGroupSearchWidget = lazy(
   () => import('employerGroupSearchApp/EmployerGroupSearchWidget')
-);
+) as React.LazyExoticComponent<
+  React.ComponentType<EmployerGroupSearchWidgetProps>
+>;
 
-interface EmployerGroupSearchPanelProps {
+export interface EmployerGroupSearchPanelProps {
   network: string;
   ccode: string;
+  policyNum?: string;
+  grpName?: string;
+  payerName?: string;
+  scenario?: string;
+  focusedFields?: EmployerGroupField[];
+  highlightedFields?: EmployerGroupField[];
+  /** Called with clientCode when the user selects an employer group in the MFE. */
+  onCcodeSelected?: (ccode: string) => void;
 }
 
-// ── Suspense fallback — extracted for readability, fixes layout bug ────────
 function EmployerGroupSearchFallback() {
   return (
     <Box
@@ -46,21 +58,37 @@ function EmployerGroupSearchFallback() {
   );
 }
 
-// ============================================================================
-// Component
-// ============================================================================
+/** Extract clientCode from the MFE employer group selection payload. */
+function extractClientCode(group: unknown): string {
+  if (!group || typeof group !== 'object') return '';
+  const g = group as Record<string, unknown>;
+  const value = g.clientCode;
+  return typeof value === 'string' ? value : '';
+}
+
 export default function EmployerGroupSearchPanel({
   network,
   ccode,
+  policyNum,
+  grpName,
+  payerName,
+  scenario,
+  focusedFields,
+  highlightedFields,
+  onCcodeSelected,
 }: EmployerGroupSearchPanelProps) {
-  // Callbacks from the remote MFE — shape is owned by that app,
-  // so `unknown` is the correct type here rather than `any`.
   const handleEmployerGroupSelected = (group: unknown) => {
-    console.warn('Employer Group selected in host:', group);
+    if (onCcodeSelected) {
+      const extracted = extractClientCode(group);
+      if (extracted) onCcodeSelected(extracted);
+    }
   };
 
   const handleClientCodeSelected = (client: unknown) => {
-    console.warn('Client Code selected in host:', client);
+    if (onCcodeSelected) {
+      const extracted = extractClientCode(client);
+      if (extracted) onCcodeSelected(extracted);
+    }
   };
 
   return (
@@ -81,6 +109,12 @@ export default function EmployerGroupSearchPanel({
             onEmployerGroupSelected={handleEmployerGroupSelected}
             onClientCodeSelected={handleClientCodeSelected}
             autoSearch={true}
+            policyNum={policyNum}
+            grpName={grpName}
+            payerName={payerName}
+            scenario={scenario}
+            focusedFields={focusedFields}
+            highlightedFields={highlightedFields}
           />
         </Suspense>
       </MfeErrorBoundary>
