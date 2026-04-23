@@ -2,56 +2,57 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box } from '@mui/material';
-import ClaimsSearchForm from '../components/ClaimsSearchForm';
-import type { ClaimSearchParams } from '../components/ClaimsSearchForm';
+import ClaimsSearchForm, {
+  type ClaimSearchParams,
+} from '../components/ClaimsSearchForm';
 import ClaimsTable from '../components/ClaimsTable/ClaimsTable';
 import Collapsible from '../components/shared/Collapsible';
 import NotFoundDialog from '../components/shared/NotFoundDialog';
 import { claimsApi } from '../services/claimsApi';
-import type { ClaimSearchResult, ClaimsSearchCriteria } from '../types/claims';
 
-/**
- * ManualReviewDashboard Page
- *
- * Main dashboard for claims review with:
- * - Search Criteria collapsible — search by EDP Claim ID or Client Claim ID
- * - Claim Counts collapsible — claims summary table with queue navigation
- * - Not Found dialog for locked / missing claims
- *
- * Search routing (live API has two separate endpoints):
- *   claimNumber filled  → GET /api/clientMatch/claim/findByClaimId/{id}
- *   clientClaimId filled → GET /api/clientMatch/claim/findByClientClaimId/{id}
- *   both filled          → claimNumber (EDP) takes precedence
- */
 export default function ManualReviewDashboard() {
   const [showNotFoundDialog, setShowNotFoundDialog] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const navigate = useNavigate();
 
   /**
-   * Handle claim search.
+   * Handles the search form submission.
    *
-   * Routes to the correct live endpoint based on which field the user filled:
-   *   claimNumber  → searchByClaimId  (EDP Claim ID endpoint)
-   *   clientClaimId → searchByClientClaimId (Client Claim ID endpoint)
+   * ClaimsSearchForm passes { claimNumber?, clientClaimId? } so we can route
+   * to the correct live endpoint without guessing:
+   *   claimNumber   → GET /api/clientMatch/claim/findByClaimId/{id}
+   *   clientClaimId → GET /api/clientMatch/claim/findByClientClaimId/{id}
    *
-   * On success: navigate to /claim/:claimNumber (Client Manual Match Dashboard).
-   * On not found / locked: show the "Halted Claim Not Found" dialog.
-   * On API error: show dialog with generic error message.
+   * Priority: claimNumber (EDP) takes precedence when both fields are filled,
+   * matching the ClaimsSearchForm ClaimSearchParams comment.
+   *
+   * On success: navigate to /claim/:claimNumber passing the already-adapted
+   * HaltedClaim in router state — ClientManualMatchDashboard reads it directly,
+   * no re-fetch needed (there is no live endpoint for fetching by ID).
+   *
+   * On not-found / locked / error: show NotFoundDialog.
    */
   const handleClaimSearch = async (params: ClaimSearchParams) => {
     try {
-      // Guard — both fields empty, form should prevent this but be safe.
-      if (!params.claimNumber && !params.clientClaimId) return;
+      let result;
 
-      // Single const: TypeScript infers result as ClaimSearchResult from both
-      // branches — no untyped `let result` needed.
-      const result: ClaimSearchResult = await (params.claimNumber
-        ? claimsApi.searchByClaimId(params.claimNumber)
-        : claimsApi.searchByClientClaimId(params.clientClaimId ?? ''));
+      if (params.claimNumber) {
+        result = await claimsApi.searchByClaimId(params.claimNumber);
+      } else if (params.clientClaimId) {
+        result = await claimsApi.searchByClientClaimId(params.clientClaimId);
+      } else {
+        // Both fields empty — form validation should prevent this.
+        setErrorMessage('Please enter a Claim Number or Client Claim ID.');
+        setShowNotFoundDialog(true);
+        return;
+      }
 
       if (result.found && result.claim) {
-        void navigate(`/claim/${result.claim.claimNumber}`);
+        // Claim already adapted to HaltedClaim by the API layer.
+        // Pass via router state — no second API call on the dashboard.
+        void navigate(`/claim/${result.claim.claimNumber}`, {
+          state: { claim: result.claim },
+        });
       } else {
         setErrorMessage(
           result.message ??
@@ -60,27 +61,10 @@ export default function ManualReviewDashboard() {
         );
         setShowNotFoundDialog(true);
       }
-    } catch (err: unknown) {
-      console.error('[ManualReviewDashboard] Error searching for claim:', err);
-      setErrorMessage(
-        'An error occurred while searching for the claim. Please try again.'
-      );
+    } catch {
+      setErrorMessage('An error occurred while searching for the claim.');
       setShowNotFoundDialog(true);
     }
-  };
-
-  /**
-   * Handle generic search (not currently used — ClaimsSearchForm delegates
-   * to onClaimSearch when either ID field is filled).
-   * Kept for ClaimsSearchForm prop contract compatibility.
-   */
-  const handleSearch = (_criteria: ClaimsSearchCriteria) => {
-    // No-op: ID search via handleClaimSearch covers all current use cases.
-  };
-
-  /** Handle form clear — no local state to clear beyond the form itself. */
-  const handleClear = () => {
-    // Form state is owned by ClaimsSearchForm (react-hook-form reset).
   };
 
   return (
@@ -95,10 +79,9 @@ export default function ManualReviewDashboard() {
         overflow: 'auto',
       }}
     >
-      {/* Search Criteria — collapsible with EDP + Client Claim ID search */}
       <ClaimsSearchForm
-        onSearch={handleSearch}
-        onClear={handleClear}
+        onSearch={() => undefined}
+        onClear={() => undefined}
         onClaimSearch={handleClaimSearch}
       />
 
