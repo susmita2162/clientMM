@@ -1,8 +1,16 @@
 // src/components/UpdateCcodeDialog.tsx
 // UpdateCcode dialog.
-// Owns its own form state (UpdateCcodeForm).
-// Pre-fills ccode and policy from the loaded claim on open.
-// API call logic lives in ClaimInformationPanel — received via onConfirm.
+//
+// CHANGE: externalCcode prop — when the user selects a member or employer
+// group in a MFE panel, the host passes the chosen ccode here.
+// Priority order for the initial ccode value:
+//   1. externalCcode (from MFE selection) — highest priority
+//   2. claim.ccode (from loaded claim data)
+//   3. '' (empty string fallback)
+//
+// The dialog remounts on every open (parent uses key={claimNumber} when open)
+// so state always reflects the latest externalCcode without a useEffect.
+
 import { useState } from 'react';
 import {
   Box,
@@ -36,6 +44,11 @@ interface Props {
   claim: HaltedClaim;
   anyLoading: boolean;
   isSubmitting: boolean;
+  /**
+   * CCode pre-selected in Member Search or Employer Group Search MFE.
+   * When provided, takes priority over claim.ccode for the initial form value.
+   */
+  externalCcode?: string;
   onConfirm: (form: UpdateCcodeForm) => void;
 }
 
@@ -55,15 +68,15 @@ export default function UpdateCcodeDialog({
   claim,
   anyLoading,
   isSubmitting,
+  externalCcode,
   onConfirm,
 }: Props) {
-  // Form state initialized from claim values.
-  // Parent passes key={claim.claimNumber} so this component remounts on open,
-  // resetting state naturally — no useEffect needed.
+  // Initialise form on mount (parent remounts via key on each open).
+  // externalCcode takes priority over claim.ccode for the CCode field.
   const [form, setForm] = useState<UpdateCcodeForm>(() => ({
     ...defaultForm(),
-    ccode: claim.ccode,
-    policy: claim.policy,
+    ccode: externalCcode ?? claim.ccode ?? '',
+    policy: claim.policy ?? '',
   }));
 
   const set = <K extends keyof UpdateCcodeForm>(
@@ -95,6 +108,9 @@ export default function UpdateCcodeDialog({
           size='small'
           fullWidth
           disabled={anyLoading}
+          helperText={
+            externalCcode ? 'Pre-filled from MFE selection' : undefined
+          }
         />
         <TextField
           label='Policy'
