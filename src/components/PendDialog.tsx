@@ -1,10 +1,22 @@
 // src/components/PendDialog.tsx
 // Pend / Pend Notes dialog.
-// Owns only its own form state (pendNotes).
+//
+// Layout matches legacy UI (image 8):
+//   - Upper scrollable area: existing pend notes (read-only, empty until API provides them)
+//   - Lower area: "New Pend Note" textarea for entering new notes
+//   - Save / Cancel buttons
+//
+// Modes:
+//   pendClaim  — title "Pend Claim",  submits pended:true
+//   pendNotes  — title "Pend Notes",  submits pended:false (update notes only)
+//
 // API call logic lives in ClaimInformationPanel — received via onConfirm.
+
 import { useState } from 'react';
 import {
+  Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -12,7 +24,6 @@ import {
   Divider,
   TextField,
   Typography,
-  CircularProgress,
 } from '@mui/material';
 
 export type PendMode = 'pendClaim' | 'pendNotes';
@@ -22,6 +33,12 @@ interface Props {
   onClose: () => void;
   mode: PendMode;
   claimNumber: string;
+  /**
+   * Existing pend notes to display in the read-only upper section.
+   * Optional — when not provided the upper section shows empty.
+   * Wire this up once the API exposes an endpoint to fetch pend notes history.
+   */
+  existingNotes?: string;
   anyLoading: boolean;
   isSubmitting: boolean;
   onConfirm: (notes: string) => void;
@@ -32,58 +49,118 @@ export default function PendDialog({
   onClose,
   mode,
   claimNumber,
+  existingNotes = '',
   anyLoading,
   isSubmitting,
   onConfirm,
 }: Props) {
-  const [notes, setNotes] = useState('');
+  const [newNote, setNewNote] = useState('');
 
-  // Reset notes when dialog opens
   const handleClose = () => {
     if (!anyLoading) {
-      setNotes('');
+      setNewNote('');
       onClose();
     }
   };
 
-  const handleConfirm = () => {
-    onConfirm(notes);
-    setNotes('');
+  const handleSave = () => {
+    onConfirm(newNote);
+    setNewNote('');
   };
+
+  const title = mode === 'pendClaim' ? 'Pend Claim' : 'Pend Notes';
 
   return (
     <Dialog
       open={open}
       onClose={handleClose}
-      maxWidth='xs'
+      maxWidth='sm'
       fullWidth
       PaperProps={{ elevation: 4, sx: { borderRadius: 2 } }}
     >
-      <DialogTitle sx={{ fontWeight: 700, fontSize: '1rem' }}>
-        {mode === 'pendClaim' ? 'Pend Claim' : 'Pend Notes'}
-      </DialogTitle>
-      <Divider />
-      <DialogContent sx={{ pt: 2 }}>
-        <Typography variant='body2' color='text.secondary' sx={{ mb: 2 }}>
-          Claim <strong>{claimNumber}</strong>
-          {mode === 'pendClaim'
-            ? ' will be pended. Add notes below (optional).'
-            : ' — update pend notes below.'}
+      <DialogTitle sx={{ fontWeight: 700, fontSize: '1rem', pb: 1 }}>
+        {title}
+        <Typography
+          variant='caption'
+          color='text.secondary'
+          sx={{ display: 'block', fontWeight: 400, mt: 0.25 }}
+        >
+          Claim: {claimNumber}
         </Typography>
-        <TextField
-          label='Pend Notes'
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          multiline
-          rows={3}
-          fullWidth
-          size='small'
-          placeholder='Enter notes...'
-          disabled={anyLoading}
-        />
-      </DialogContent>
+      </DialogTitle>
+
       <Divider />
-      <DialogActions sx={{ px: 3, py: 1.5, gap: 1 }}>
+
+      <DialogContent sx={{ p: 0 }}>
+        {/*
+          Upper section — existing / historical pend notes (read-only).
+          Matches the upper blank area in image 8.
+          Height is fixed so the layout is stable regardless of content.
+        */}
+        <Box
+          sx={{
+            minHeight: 120,
+            maxHeight: 200,
+            overflowY: 'auto',
+            px: 2,
+            py: 1.5,
+            bgcolor: 'background.default',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          {existingNotes ? (
+            <Typography
+              variant='body2'
+              sx={{ whiteSpace: 'pre-wrap', color: 'text.primary' }}
+            >
+              {existingNotes}
+            </Typography>
+          ) : (
+            <Typography
+              variant='body2'
+              color='text.disabled'
+              fontStyle='italic'
+            >
+              No existing pend notes.
+            </Typography>
+          )}
+        </Box>
+
+        {/* Lower section — new pend note input */}
+        <Box sx={{ px: 2, pt: 1.5, pb: 1 }}>
+          <Typography
+            variant='body2'
+            fontWeight={600}
+            color='text.secondary'
+            sx={{
+              mb: 0.75,
+              textTransform: 'uppercase',
+              fontSize: '0.75rem',
+              letterSpacing: '0.4px',
+            }}
+          >
+            New Pend Note:
+          </Typography>
+          <TextField
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+            multiline
+            rows={4}
+            fullWidth
+            size='small'
+            placeholder='Enter note...'
+            disabled={anyLoading}
+            sx={{
+              '& .MuiOutlinedInput-root': { borderRadius: 1 },
+            }}
+          />
+        </Box>
+      </DialogContent>
+
+      <Divider />
+
+      <DialogActions sx={{ px: 2, py: 1.25, gap: 1 }}>
         <Button
           onClick={handleClose}
           disabled={anyLoading}
@@ -93,7 +170,7 @@ export default function PendDialog({
           Cancel
         </Button>
         <Button
-          onClick={handleConfirm}
+          onClick={handleSave}
           disabled={anyLoading}
           size='small'
           variant='contained'
@@ -104,7 +181,7 @@ export default function PendDialog({
             ) : undefined
           }
         >
-          {isSubmitting ? 'Submitting...' : 'Confirm'}
+          {isSubmitting ? 'Saving...' : 'Save'}
         </Button>
       </DialogActions>
     </Dialog>
