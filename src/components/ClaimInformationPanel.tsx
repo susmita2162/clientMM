@@ -1,10 +1,18 @@
 // src/components/ClaimInformationPanel.tsx
-// Thin orchestrator — owns actionLoading, snackbar, and all API call logic.
-// Composes: ClaimInfoGrid, ClaimActionBar, PendDialog, UpdateCcodeDialog.
+// Thin orchestrator — owns actionLoading, snackbar, isPended state, and API calls.
 //
-// userName: optional prop, defaults to 'system'.
-// Replace default with value from auth context once auth is wired:
-//   <ClaimInformationPanel ... userName={authUser.name} />
+// isPended is local state (not derived on every render) so it can be updated
+// immediately after a successful Pend Claim API call — toggling the button
+// states without requiring a claim re-fetch or navigation.
+//
+// Flow:
+//   1. Claim loads with pendedClaim 'N' → isPended = false
+//      → Pend Claim enabled, Pend Notes disabled
+//   2. User clicks Pend Claim → dialog → notes → Save
+//   3. API succeeds → setIsPended(true)
+//      → Pend Claim disabled, Pend Notes enabled
+//   4. onAction('pendClaim') called → parent handles navigation / next claim
+
 import { useState } from 'react';
 import { Alert, Box, Divider, Snackbar } from '@mui/material';
 import Collapsible from './shared/Collapsible';
@@ -18,35 +26,34 @@ import type { HaltedClaim } from '../types/claims';
 interface Props {
   claim: HaltedClaim;
   onAction: (
-    action:
-      | 'updateCCode'
-      | 'pendClaim'
-      | 'pendNotes'
-      | 'denyClaim'
-      | 'resetClaim'
+    action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim'
   ) => void;
-  /**
-   * Authenticated user name sent in API requests (userName / lockedByUser).
-   * Defaults to 'system'. Pass from auth context once available:
-   *   <ClaimInformationPanel userName={user.name} ... />
-   */
+  /** CCode selected in a MFE panel — pre-fills UpdateCcodeDialog. */
+  selectedCcode?: string;
+  /** Defaults to 'system'. Replace with auth context value when available. */
   userName?: string;
 }
 
 export default function ClaimInformationPanel({
   claim,
   onAction,
+  selectedCcode,
   userName = 'system',
 }: Props) {
   // --------------------------------------------------------------------------
-  // Shared state — single source of truth for in-flight action tracking.
-  // All child components receive anyLoading / actionLoading as props.
+  // Pend state — local so it can be updated after a successful API call
+  // without a re-fetch. Initialised from claim.pendedClaim on mount.
+  // --------------------------------------------------------------------------
+  const [isPended, setIsPended] = useState(claim.pendedClaim === 'Y');
+
+  // --------------------------------------------------------------------------
+  // Loading
   // --------------------------------------------------------------------------
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const anyLoading = actionLoading !== null;
 
   // --------------------------------------------------------------------------
-  // Snackbar — shared feedback channel for all actions.
+  // Snackbar
   // --------------------------------------------------------------------------
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
@@ -58,7 +65,7 @@ export default function ClaimInformationPanel({
     setSnackbar({ open: true, message, severity });
 
   // --------------------------------------------------------------------------
-  // Pend dialog open state + mode — dialog owns notes form state internally.
+  // Pend dialog
   // --------------------------------------------------------------------------
   const [pendOpen, setPendOpen] = useState(false);
   const [pendMode, setPendMode] = useState<PendMode>('pendClaim');
@@ -77,11 +84,17 @@ export default function ClaimInformationPanel({
         userName,
         pendNotes: notes,
         pended: pendMode === 'pendClaim',
-        lockExpiration: 0, // int32 per swagger — no UI-driven value
+        lockExpiration: 0,
         network: claim.network,
       })
       .then(() => {
         setPendOpen(false);
+        // Update local pend state so button states reflect the change immediately.
+        // pendClaim → isPended becomes true (Pend Claim disabled, Pend Notes enabled).
+        // pendNotes → pend state unchanged (claim was already pended).
+        if (pendMode === 'pendClaim') {
+          setIsPended(true);
+        }
         showSnackbar('Claim pended successfully.', 'success');
         onAction(pendMode);
       })
@@ -92,7 +105,7 @@ export default function ClaimInformationPanel({
   };
 
   // --------------------------------------------------------------------------
-  // Deny — validation dialog lives in ClaimActionBar (no form state needed).
+  // Deny
   // --------------------------------------------------------------------------
   const handleDenySubmit = (reason: string) => {
     setActionLoading('deny');
@@ -115,7 +128,7 @@ export default function ClaimInformationPanel({
   };
 
   // --------------------------------------------------------------------------
-  // UpdateCcode dialog open state — dialog owns form state internally.
+  // Update CCode dialog
   // --------------------------------------------------------------------------
   const [updateCcodeOpen, setUpdateCcodeOpen] = useState(false);
 
@@ -131,10 +144,10 @@ export default function ClaimInformationPanel({
         receiptDate: claim.dateOfReceipt,
         claimNumber: claim.claimNumber,
         claimType: claim.claimType,
-        statusCode: '', // string per swagger — no UI-driven value
+        statusCode: '',
         lockedByUser: userName,
-        eligMemberId: form.eligMemberId, // int64 per swagger
-        ccodeRecId: form.ccodeRecId, // int64 per swagger
+        eligMemberId: form.eligMemberId,
+        ccodeRecId: form.ccodeRecId,
         forcePolicy: form.forcePolicy,
       })
       .then(() => {
@@ -161,6 +174,7 @@ export default function ClaimInformationPanel({
             claim={claim}
             anyLoading={anyLoading}
             actionLoading={actionLoading}
+            isPended={isPended}
             onPendClick={handlePendClick}
             onUpdateCcodeClick={() => setUpdateCcodeOpen(true)}
             onDenySubmit={handleDenySubmit}
@@ -178,6 +192,7 @@ export default function ClaimInformationPanel({
         onConfirm={handlePendConfirm}
       />
 
+      {/* key forces remount on open — externalCcode is captured at mount time */}
       <UpdateCcodeDialog
         key={updateCcodeOpen ? claim.claimNumber : 'closed'}
         open={updateCcodeOpen}
@@ -185,6 +200,7 @@ export default function ClaimInformationPanel({
         claim={claim}
         anyLoading={anyLoading}
         isSubmitting={actionLoading === 'updateCcode'}
+        externalCcode={selectedCcode}
         onConfirm={handleUpdateCcodeConfirm}
       />
 
