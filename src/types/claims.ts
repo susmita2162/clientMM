@@ -1,11 +1,9 @@
 // src/types/claims.ts
-// Type definitions for Claims data
-// PHASE-2 UPDATE: NextHaltedClaimRequest/Response added to match live
-//   POST /api/client-match/claim-match-action/nextHalted (claim-match service)
 
-/**
- * Search criteria for claims
- */
+// ============================================================================
+// SEARCH / FILTER
+// ============================================================================
+
 export interface ClaimsSearchCriteria {
   claimNumber?: string;
   clientClaimId?: string;
@@ -25,13 +23,10 @@ export interface ClaimsResponse {
 }
 
 // ============================================================================
-// QUEUE MANAGEMENT TYPES
+// NEXT HALTED CLAIM
+// POST /api/client-match/claim-match-action/nextHalted
 // ============================================================================
 
-/**
- * Request body for POST /api/client-match/claim-match-action/nextHalted
- * Field names match live swagger (NextHaltedClaimRequest schema).
- */
 export interface NextHaltedClaimRequest {
   lockedByUser: string;
   lockExpiration: number; // int32
@@ -41,61 +36,142 @@ export interface NextHaltedClaimRequest {
 }
 
 /**
- * Response from POST /api/client-match/claim-match-action/nextHalted
- * Flat structure — all fields are top-level strings/numbers.
- * Field names match live swagger (NextHaltedClaimResponse schema) exactly.
- *
- * NOTE: claimNumber is string (not int64) — confirmed from live swagger.
+ * Flat response — all top-level, all nullable (live API).
+ * matchType is always 'HALT'. scenario drives MFE field highlighting.
+ * pendedClaim: 'Y' | 'N' — drives Pend Claim / Pend Notes button state.
  */
 export interface NextHaltedClaimResponse {
   claimNumber: string;
   claimId: string;
   clientClaimId: string;
-  network: string;
-  status: string;
-  insuredId: string;
-  insuredFullName: string;
-  insuredFirstName: string;
-  insuredLastName: string;
-  insuredGender: string;
-  insuredAddress1: string;
-  insuredCityStateZip: string;
-  insuredDob: string;
-  memberDob: string;
-  payerName: string;
-  scenario: string;
-  category: string;
-  claimType: string;
-  claimStream: string;
-  relationship: string;
-  policyNum: string;
-  matchType: string;
-  pendedClaim: string;
+  network: string | null;
+  status: string | null;
+  insuredId: string | null;
+  insuredFullName: string | null;
+  insuredFirstName: string | null;
+  insuredLastName: string | null;
+  insuredGender: string | null;
+  insuredAddress1: string | null;
+  insuredCityStateZip: string | null;
+  insuredDob: string | null;
+  memberDob: string | null;
+  payerName: string | null;
+  scenario: string | null;
+  category: string | null;
+  claimType: string | null;
+  claimStream: string | null;
+  relationship: string | null;
+  policyNum: string | null;
+  matchType: string | null; // always 'HALT'
+  pendedClaim: string | null; // 'Y' | 'N'
   matchActionId: number; // int64
-  message: string;
-  ccode: string;
-  dateOfService: string;
-  receiptDate: string; // date-time
-  grpName: string;
-  sender: string;
+  message: string | null;
+  ccode: string | null;
+  dateOfService: string | null;
+  receiptDate: string | null;
+  grpName: string | null;
+  sender: string | null;
+}
+
+// ============================================================================
+// FIND BY CLAIM ID — LIVE RESPONSE
+// GET /api/clientMatch/claim/findByClaimId/:id
+// GET /api/clientMatch/claim/findByClientClaimId/:id
+//
+// Full schema from swagger (images 1-3).
+// claimsApi.adaptFindByClaimIdResponse() flattens this to HaltedClaim.
+// ============================================================================
+
+export interface FindByClaimIdAddress {
+  street1?: string | null;
+  street2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+}
+
+export interface FindByClaimIdInsured {
+  insuredID?: string | null;
+  lastName?: string | null;
+  firstName?: string | null;
+  middleName?: string | null;
+  dateOfBirth?: string | null;
+  relationToPatient?: string | null;
+  address?: FindByClaimIdAddress | null;
+  gender?: string | null;
+}
+
+export interface FindByClaimIdPatient {
+  patientID?: string | null;
+  lastName?: string | null;
+  firstName?: string | null;
+  middleName?: string | null;
+  dateOfBirth?: string | null;
+  gender?: string | null;
+  address?: FindByClaimIdAddress | null;
+}
+
+export interface FindByClaimIdEmployer {
+  employerGroupName?: string | null;
+  employerGroupNumber?: string | null;
+}
+
+export interface FindByClaimIdPayer {
+  payerId?: string | null;
+  payerName?: string | null;
+  payerLocation?: string | null;
+  address?: FindByClaimIdAddress | null;
+}
+
+/** One entry in additionalInfo.info[] — scenario, matchType, reasonCode etc. */
+export interface FindByClaimIdInfoItem {
+  name: string;
+  value: string;
+}
+
+export interface FindByClaimIdAdditionalInfo {
+  info?: FindByClaimIdInfoItem[];
+}
+
+export interface FindByClaimIdLineItem {
+  serviceFromDate?: string | null;
+  serviceToDate?: string | null;
+}
+
+export interface FindByClaimIdLineGroup {
+  line?: FindByClaimIdLineItem[];
 }
 
 /**
- * @deprecated Use NextHaltedClaimRequest + getNextHaltedClaim() for live mode.
- * Kept for backward compatibility with existing queue management code.
+ * Complete live response shape from swagger.
+ * claimType: "H" = HCFA, "U" = UB.
+ * claimNumber: int64 from live API.
+ * clientCode: maps to ccode in HaltedClaim.
+ * additionalInfo.info[] contains scenario, matchType, reasonCode, stc0101, etc.
  */
-export interface QueueParams {
-  claimStream: string;
-  category: 'MANUAL_REVIEW' | 'MANUAL_REVIEW_PENDED';
-  claimType: 'HCFA' | 'UB';
-  userId?: string;
+export interface FindByClaimIdLiveResponse {
+  clientClaimNumber?: string | null;
+  clientReceivedDate?: string | null; // date-time
+  claimType?: string | null; // "H" | "U"
+  claimNumber?: number | string | null; // int64
+  claimOrigin?: string | null;
+  receivedDate?: string | null;
+  clientCode?: string | null; // maps to ccode in HaltedClaim
+  lines?: FindByClaimIdLineGroup | null;
+  insured?: FindByClaimIdInsured | null;
+  patient?: FindByClaimIdPatient | null;
+  employer?: FindByClaimIdEmployer | null;
+  payer?: FindByClaimIdPayer | null;
+  lineOfBusiness?: string | null;
+  additionalInfo?: FindByClaimIdAdditionalInfo | null;
 }
 
-/**
- * HaltedClaim — flat shape used by mock data and existing UI components.
- * Field names do NOT yet match the live NextHaltedClaimResponse — this
- * mapping is parked pending Claim Information panel alignment.
- */
+// ============================================================================
+// HALTED CLAIM — INTERNAL FLAT SHAPE
+// Adapted from NextHaltedClaimResponse and FindByClaimIdLiveResponse
+// by claimsApi.ts. Consumed by ClaimInfoGrid, ClaimInformationPanel, etc.
+// ============================================================================
+
 export interface HaltedClaim {
   claimNumber: string;
   clientClaimId: string;
@@ -119,11 +195,14 @@ export interface HaltedClaim {
   status: 'HALTED' | 'LOCKED' | 'PROCESSING';
   lockedBy: string | null;
   lockedAt: string | null;
+  /** 'Y' = already pended, 'N' = not yet pended. Drives button state. */
+  pendedClaim?: string;
+  /** Scenario code (e.g. "INSID LN3"). Drives MFE field highlighting. */
+  scenario?: string;
+  /** Always 'HALT' for halted claims. */
+  matchType?: string;
 }
 
-/**
- * Claim search result — used by findByClaimId / findByClientClaimId.
- */
 export interface ClaimSearchResult {
   found: boolean;
   claim?: HaltedClaim;
@@ -131,37 +210,20 @@ export interface ClaimSearchResult {
   message?: string;
 }
 
-/**
- * @deprecated Use NextHaltedClaimResponse for live mode.
- */
-export interface QueueClaimResponse {
-  claim: HaltedClaim | null;
-  queueKey: string;
-  message?: string;
-}
-
 // ============================================================================
-// CLAIM PROFILE MANAGEMENT TYPES
-// Field names match live swagger schemas exactly.
+// CLAIM ACTION REQUESTS
 // ============================================================================
 
-/**
- * POST /api/client-match/claim-match-action/pend
- * Pend or unpend a claim and optionally add notes.
- */
 export interface PendClaimRequest {
   claimNumber: string;
   claimType: string;
   userName: string;
   pendNotes: string;
   pended: boolean;
-  lockExpiration: number; // int32
+  lockExpiration: number;
   network: string;
 }
 
-/**
- * POST /api/client-match/claim-match-action/deny
- */
 export interface DenyDecisionRequest {
   claimNumber: string;
   clientClaimNumber: string;
@@ -170,39 +232,29 @@ export interface DenyDecisionRequest {
   denialReason: string;
 }
 
-/**
- * POST /api/client-match/claim-match-action/claim/updateCcode
- */
 export interface UpdateCcodeRequest {
   policy: string;
   ccode: string;
   policyAlias: string;
   forceCcode: boolean;
-  serviceDate: string; // date-time
-  receiptDate: string; // date-time
+  serviceDate: string;
+  receiptDate: string;
   claimNumber: string;
   claimType: string;
   statusCode: string;
   lockedByUser: string;
-  eligMemberId: number; // int64
-  ccodeRecId: number; // int64
+  eligMemberId: number;
+  ccodeRecId: number;
   forcePolicy: boolean;
 }
 
-/**
- * POST /api/client-match/claim-match-action/claim/reset
- */
 export interface ResetSearchRequest {
   claimType: string;
   network: string;
-  statusCode: number; // int64
+  statusCode: number;
   pended: boolean;
 }
 
-/**
- * Response shape for deny and updateCcode (200).
- * Pend and reset return empty {} on 200 — modelled as Promise<void>.
- */
 export interface ClaimActionResponse {
   header: {
     requestId: string;
@@ -219,7 +271,7 @@ export interface ClaimActionResponse {
 }
 
 // ============================================================================
-// DENIAL REASON TYPES
+// DENIAL REASONS
 // ============================================================================
 
 /**
@@ -237,12 +289,8 @@ export interface DenialReason {
   label: string;
 }
 
-export interface DenialReasonsResponse {
-  denialReasons: DenialReason[];
-}
-
 // ============================================================================
-// MEMBER SEARCH TYPES
+// MEMBER / EMPLOYER GROUP SEARCH
 // ============================================================================
 
 export interface MemberSearchParams {
