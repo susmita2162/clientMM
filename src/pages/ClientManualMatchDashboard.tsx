@@ -57,7 +57,7 @@ const LOCK_EXPIRATION_MINUTES = 15;
 //
 // Mapping is isolated here — ClaimsTable only deals with URL-friendly strings.
 
-function resolveApiClaimType(urlParam: string): string {
+const resolveApiClaimType = (urlParam: string): string => {
   switch (urlParam.toLowerCase()) {
     case 'hcfa':
       return 'H';
@@ -66,7 +66,7 @@ function resolveApiClaimType(urlParam: string): string {
     default:
       return ''; // 'all' or any unrecognised value → no filter
   }
-}
+};
 
 // ── Queue context ─────────────────────────────────────────────────────────────
 
@@ -119,7 +119,7 @@ interface AlwaysMountedPanelProps {
   visible: boolean;
 }
 
-function AlwaysMountedPanel({ children, visible }: AlwaysMountedPanelProps) {
+const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => {
   return (
     <Box
       sx={{
@@ -133,7 +133,7 @@ function AlwaysMountedPanel({ children, visible }: AlwaysMountedPanelProps) {
       {children}
     </Box>
   );
-}
+};
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
