@@ -1,18 +1,21 @@
 // src/pages/ClientManualMatchDashboard.tsx
 //
-// Two valid entry modes — no other entry path exists:
+// Two valid entry modes:
 //
-//   1. SEARCH RESULT  — /claim/:claimId  (route param is for the URL only)
-//      ManualReviewDashboard navigates here with { state: { claim: HaltedClaim } }
-//      after a successful findByClaimId / findByClientClaimId call.
-//      The claim is read directly from router state — no API call.
-//      After any action the user is returned to /manual-review.
+//   1. SEARCH RESULT  — /claim/:claimId
+//      Claim arrives via router state { claim: HaltedClaim }. No API call.
+//      After any action → return to /manual-review.
 //
-//   2. QUEUE MODE  — /claim/:category/:formType/next?stream=<claimStream>
-//      ClaimsTable navigates here when the user clicks a count cell.
+//   2. QUEUE MODE — /claim/:category/:claimType/next?stream=<claimStream>
+//      Route param is :claimType (NOT :formType — matches main.tsx definition).
 //      POST /nextHalted fetches the first available halted claim.
-//      After every action the next halted claim is loaded automatically.
-//      When the queue is empty an informational message is shown.
+//      lockExpiration: 15 (minutes) — claim locked to current user for 15 mins.
+//      After every action → next halted claim loaded automatically.
+//      Queue empty → informational message shown.
+//
+// MFE tab rendering:
+//   Both panels always mounted. Visibility via CSS only (display none/flex).
+//   Prevents MFEs unmounting/remounting on tab switch and re-firing autoSearch.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -37,6 +40,16 @@ import { claimsApi } from '../services/claimsApi';
 import { getScenarioConfig } from '../utils/scenarioFieldConfig';
 import type { HaltedClaim, NextHaltedClaimResponse } from '../types/claims';
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/**
+ * Lock duration in minutes.
+ * The claim is locked to the current user for this period.
+ * If no action is taken within this window, the server releases the lock
+ * and the claim re-enters the halted queue automatically.
+ */
+const LOCK_EXPIRATION_MINUTES = 15;
+
 // ── Queue context ─────────────────────────────────────────────────────────────
 
 interface QueueContext {
@@ -46,7 +59,6 @@ interface QueueContext {
 }
 
 // ── Adapter: NextHaltedClaimResponse → HaltedClaim ───────────────────────────
-// Keeps ClaimInformationPanel / ClaimInfoGrid unchanged.
 
 function adaptNextHaltedToHaltedClaim(r: NextHaltedClaimResponse): HaltedClaim {
   return {
@@ -82,42 +94,17 @@ function adaptNextHaltedToHaltedClaim(r: NextHaltedClaimResponse): HaltedClaim {
   };
 }
 
-// ── TabPanel ──────────────────────────────────────────────────────────────────
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  value: number;
-  index: number;
-}
-
-function TabPanel({ children, value, index }: TabPanelProps) {
-  return (
-    <Box
-      role='tabpanel'
-      hidden={value !== index}
-      sx={{
-        height: '100%',
-        display: value !== index ? 'none' : 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      {value === index && (
-        <Box sx={{ height: '100%', width: '100%' }}>{children}</Box>
-      )}
-    </Box>
-  );
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ClientManualMatchDashboard() {
-  // Route params — :claimId is present in mode 1 (search result URL),
-  // :category + :formType are present in mode 2 (queue).
-  const { category, formType } = useParams<{
+  // Route param name matches main.tsx: claim/:category/:claimType/next
+  // Previously read as 'formType' which was always undefined — fixed here.
+  const { category, claimType: claimTypeParam } = useParams<{
     claimId?: string;
     category?: string;
-    formType?: string;
+    claimType?: string; // matches route definition in main.tsx
   }>();
+
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -131,8 +118,7 @@ export default function ClientManualMatchDashboard() {
   const [queueEmpty, setQueueEmpty] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
 
-  // CCode selected in a MFE panel — passed to UpdateCcodeDialog.
-  // Reset on every new claim load.
+  // CCode selected in a MFE panel. Reset on every new claim load.
   const [selectedCcode, setSelectedCcode] = useState('');
 
   const queueContextRef = useRef<QueueContext | null>(null);
@@ -151,7 +137,7 @@ export default function ClientManualMatchDashboard() {
         pended: ctx.pended,
         network: ctx.network,
         lockedByUser: 'SYSTEM', // replace with auth user when available
-        lockExpiration: 30,
+        lockExpiration: LOCK_EXPIRATION_MINUTES,
       });
 
       if (response) {
@@ -173,7 +159,7 @@ export default function ClientManualMatchDashboard() {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
-    // MODE 1 — search result: claim already in router state, no API call.
+    // Mode 1 — search result: claim already in router state, no API call.
     const stateClaim = (location.state as { claim?: HaltedClaim } | null)
       ?.claim;
     if (stateClaim) {
@@ -182,11 +168,12 @@ export default function ClientManualMatchDashboard() {
       return;
     }
 
-    // MODE 2 — queue: category + formType params present.
-    if (category && formType) {
+    // Mode 2 — queue: category + claimType params present.
+    // claimTypeParam comes from :claimType in the route (e.g. 'hcfa', 'ub').
+    if (category && claimTypeParam) {
       const claimStream = searchParams.get('stream') ?? '';
       const ctx: QueueContext = {
-        claimType: formType.toUpperCase(), // 'hcfa' → 'HCFA'
+        claimType: claimTypeParam.toUpperCase(), // 'hcfa' → 'HCFA'
         pended: category === 'manual-pended',
         network: claimStream,
       };
@@ -299,7 +286,7 @@ export default function ClientManualMatchDashboard() {
     );
   }
 
-  // ── Scenario field config ─────────────────────────────────────────────────
+  // ── Scenario config ───────────────────────────────────────────────────────
 
   const scenarioConfig = getScenarioConfig(claim.scenario ?? '');
 
@@ -337,6 +324,7 @@ export default function ClientManualMatchDashboard() {
           overflow: 'hidden',
         }}
       >
+        {/* Tab bar */}
         <Box
           sx={{
             borderBottom: 1,
@@ -365,15 +353,27 @@ export default function ClientManualMatchDashboard() {
           </Tabs>
         </Box>
 
+        {/*
+          Both panels always mounted — CSS-only show/hide prevents MFEs
+          from unmounting and re-firing autoSearch on tab switch.
+        */}
         <Box
           sx={{
             flex: 1,
             minHeight: 0,
-            overflow: 'hidden',
             position: 'relative',
+            overflow: 'hidden',
           }}
         >
-          <TabPanel value={activeTab} index={0}>
+          <Box
+            sx={{
+              display: activeTab === 0 ? 'flex' : 'none',
+              height: '100%',
+              width: '100%',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
             <MemberSearchPanel
               network={claim.network}
               ccode={claim.ccode}
@@ -388,9 +388,17 @@ export default function ClientManualMatchDashboard() {
               highlightedFields={scenarioConfig?.memberHighlighted}
               onCcodeSelected={setSelectedCcode}
             />
-          </TabPanel>
+          </Box>
 
-          <TabPanel value={activeTab} index={1}>
+          <Box
+            sx={{
+              display: activeTab === 1 ? 'flex' : 'none',
+              height: '100%',
+              width: '100%',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
             <EmployerGroupSearchPanel
               network={claim.network}
               ccode={claim.ccode}
@@ -402,7 +410,7 @@ export default function ClientManualMatchDashboard() {
               highlightedFields={scenarioConfig?.employerHighlighted}
               onCcodeSelected={setSelectedCcode}
             />
-          </TabPanel>
+          </Box>
         </Box>
       </Box>
     </Box>
