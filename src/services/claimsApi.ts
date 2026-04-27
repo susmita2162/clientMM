@@ -1,19 +1,20 @@
 // src/services/claimsApi.ts
 //
-// Mode-switching service:
-//   VITE_API_MODE=mock → MOCK_API_URL
-//   VITE_API_MODE=live → LIVE_API_URL
+// Two live services, two base URL env vars:
 //
-// Live endpoints used:
-//   GET  /api/clientmatch/claims
-//   GET  /api/clientMatch/claim/findByClaimId/:id
-//   GET  /api/clientMatch/claim/findByClientClaimId/:id
-//   GET  /api/client-match/claim-match-action/denial-reasons
-//   POST /api/client-match/claim-match-action/nextHalted
-//   POST /api/client-match/claim-match-action/pend
-//   POST /api/client-match/claim-match-action/deny
-//   POST /api/client-match/claim-match-action/claim/updateCcode
-//   POST /api/client-match/claim-match-action/claim/reset
+//   VITE_CLAIMS_SEARCH_API_URL  — claimsearchservice base
+//     e.g. https://claims-poc.dev.multiplan.com/claimsearchservice
+//     Handles: /api/clientmatch/claims
+//              /api/clientMatch/claim/findByClaimId/:id
+//              /api/clientMatch/claim/findByClientClaimId/:id
+//
+//   VITE_CLAIM_MATCH_API_URL    — claim-match service base
+//     e.g. https://claims-poc.dev.multiplan.com/claim-match
+//     Handles: /api/client-match/claim-match-action/*
+//
+//   In mock mode both resolve to VITE_MOCK_API_BASE_URL (localhost:3001).
+//   In Docker/OKE set both vars to the correct service base — nginx/ingress
+//   is bypassed for routing since the full service URL is already in the request.
 
 import {
   type ClaimActionResponse,
@@ -43,15 +44,28 @@ const IS_LIVE = API_MODE === 'live';
 const MOCK_API_URL =
   (import.meta.env.VITE_MOCK_API_BASE_URL as string | undefined) ??
   'http://localhost:3001';
-const LIVE_API_URL =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+
+// One base URL per service — no path prefix added by buildUrl.
+// Set these in .env.local / deployment env to the full service base.
+const CLAIMS_SEARCH_API_URL =
+  (import.meta.env.VITE_CLAIMS_SEARCH_API_URL as string | undefined) ?? '';
+const CLAIM_MATCH_API_URL =
+  (import.meta.env.VITE_CLAIM_MATCH_API_URL as string | undefined) ?? '';
+
 const API_TIMEOUT = parseInt(
   (import.meta.env.VITE_API_TIMEOUT as string | undefined) ?? '15000',
   10
 );
 
-// Warn only when the env var itself is absent — the variable always has a
-// localhost fallback so checking !MOCK_API_URL would never trigger.
+if (import.meta.env.DEV && IS_LIVE) {
+  if (!CLAIMS_SEARCH_API_URL) {
+    console.warn('[claimsApi] VITE_CLAIMS_SEARCH_API_URL is not set.');
+  }
+  if (!CLAIM_MATCH_API_URL) {
+    console.warn('[claimsApi] VITE_CLAIM_MATCH_API_URL is not set.');
+  }
+}
+
 if (
   import.meta.env.DEV &&
   !IS_LIVE &&
@@ -103,18 +117,26 @@ function getPostHeaders(): Record<string, string> {
 }
 
 /**
- * Builds the full request URL for the current mode.
- * Live: LIVE_API_URL (empty in Docker/OKE — proxy/ingress handles prefix).
- * Mock: MOCK_API_URL — same path, no rewriting needed.
+ * Resolves the correct base URL per path and mode.
+ *
+ * Mock:  all paths → MOCK_API_URL
+ * Live:  /api/client-match/*  → CLAIM_MATCH_API_URL
+ *        everything else       → CLAIMS_SEARCH_API_URL
+ *
+ * No prefix is added — the base URL already includes the service segment.
+ * Vite dev proxy (vite.config.ts) handles rewriting in development;
+ * the env vars handle it in production.
  */
 function buildUrl(path: string): string {
-  return `${IS_LIVE ? LIVE_API_URL : MOCK_API_URL}${path}`;
+  if (!IS_LIVE) return `${MOCK_API_URL}${path}`;
+
+  const base = path.startsWith('/api/client-match')
+    ? CLAIM_MATCH_API_URL
+    : CLAIMS_SEARCH_API_URL;
+
+  return `${base}${path}`;
 }
 
-/**
- * Wraps fetch() with an AbortController timeout.
- * AbortError is mapped to HTTP 408 by handleError.
- */
 function fetchWithTimeout(
   url: string,
   options: RequestInit = {}
@@ -217,7 +239,7 @@ function adaptFindByClaimIdResponse(
 export const claimsApi = {
   /**
    * Claim counts summary table.
-   * GET /api/clientmatch/claims
+   * GET /api/clientmatch/claims  →  claimsearchservice
    */
   async getClaims(): Promise<ClaimsResponse> {
     try {
@@ -312,7 +334,7 @@ export const claimsApi = {
 
   /**
    * Next halted claim from queue.
-   * POST /api/client-match/claim-match-action/nextHalted
+   * POST /api/client-match/claim-match-action/nextHalted  →  claim-match
    * 404 → null (queue empty).
    */
   async getNextHaltedClaim(
@@ -332,14 +354,11 @@ export const claimsApi = {
     }
   },
 
-  /** POST /api/client-match/claim-match-action/pend */
   /**
    * Pend a claim.
-   * POST /api/client-match/claim-match-action/pend
-   *
-   * Request:  PendClaimRequest
-   * Response: {} on 200 — modelled as void.
-   */ async pendClaim(params: PendClaimRequest): Promise<void> {
+   * POST /api/client-match/claim-match-action/pend  →  claim-match
+   */
+  async pendClaim(params: PendClaimRequest): Promise<void> {
     try {
       const response = await fetchWithTimeout(buildUrl(PATHS.pend), {
         method: 'POST',
@@ -354,10 +373,7 @@ export const claimsApi = {
 
   /**
    * Deny a claim.
-   * POST /api/client-match/claim-match-action/deny
-   *
-   * Request:  DenyDecisionRequest
-   * Response: ClaimActionResponse { header, status }
+   * POST /api/client-match/claim-match-action/deny  →  claim-match
    */
   async denyClaim(params: DenyDecisionRequest): Promise<ClaimActionResponse> {
     try {
@@ -374,12 +390,8 @@ export const claimsApi = {
   },
 
   /**
-   * Update CCode for a claim.
-   * POST /api/client-match/claim-match-action/claim/updateCcode
-   *
-   * Request:  UpdateCcodeRequest
-   * Response: ClaimActionResponse { header, status }
-   * 409: CCode validation failed — thrown as ApiServiceError.
+   * Update CCode.
+   * POST /api/client-match/claim-match-action/claim/updateCcode  →  claim-match
    */
   async updateCcode(params: UpdateCcodeRequest): Promise<ClaimActionResponse> {
     try {
@@ -397,10 +409,7 @@ export const claimsApi = {
 
   /**
    * Reset claims group data search info.
-   * POST /api/client-match/claim-match-action/claim/reset
-   *
-   * Request:  ResetSearchRequest
-   * Response: {} on 200 — modelled as void.
+   * POST /api/client-match/claim-match-action/claim/reset  →  claim-match
    */
   async resetClaim(params: ResetSearchRequest): Promise<void> {
     try {
