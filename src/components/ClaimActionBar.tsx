@@ -8,6 +8,10 @@
 // This reflects the workflow: a halted claim arrives un-pended; the user
 // pends it first (Pend Claim), after which they can update notes (Pend Notes).
 
+// Update CCode: always enabled. No hasSelectedCcode gate.
+// Pend Claim:   enabled when isPended=false.
+// Pend Notes:   enabled when isPended=true.
+
 import { useState, useEffect, useRef } from 'react';
 import {
   Box,
@@ -40,8 +44,8 @@ interface Props {
    *   true  → Pend Claim disabled, Pend Notes enabled
    */
   isPended: boolean;
-  onPendClick: (mode: PendMode) => void;
   onUpdateCcodeClick: () => void;
+  onPendClick: (mode: PendMode) => void;
   onDenySubmit: (reason: string) => void;
 }
 
@@ -50,8 +54,8 @@ export default function ClaimActionBar({
   anyLoading,
   actionLoading,
   isPended,
-  onPendClick,
   onUpdateCcodeClick,
+  onPendClick,
   onDenySubmit,
 }: Props) {
   // --------------------------------------------------------------------------
@@ -63,7 +67,7 @@ export default function ClaimActionBar({
 
   useEffect(() => {
     let cancelled = false;
-    const fetch = async () => {
+    const fetchReasons = async () => {
       setReasonsLoading(true);
       setReasonsError(false);
       try {
@@ -75,7 +79,7 @@ export default function ClaimActionBar({
         if (!cancelled) setReasonsLoading(false);
       }
     };
-    void fetch();
+    void fetchReasons();
     return () => {
       cancelled = true;
     };
@@ -97,9 +101,7 @@ export default function ClaimActionBar({
     selectionCache.current.set(claim.claimNumber, value);
   };
 
-  // --------------------------------------------------------------------------
-  // Deny validation dialog — no reason selected
-  // --------------------------------------------------------------------------
+  // ── Deny validation dialog ─────────────────────────────────────────────────
   const [denyValidationOpen, setDenyValidationOpen] = useState(false);
 
   const handleDenyClick = () => {
@@ -256,7 +258,7 @@ export default function ClaimActionBar({
         </Button>
       </Box>
 
-      {/* Deny validation dialog — no reason selected */}
+      {/* Deny validation dialog */}
       <Dialog
         open={denyValidationOpen}
         onClose={() => setDenyValidationOpen(false)}
@@ -294,26 +296,14 @@ export default function ClaimActionBar({
           </Box>
           <DialogTitle
             id='deny-validation-title'
-            sx={{
-              p: 0,
-              fontSize: '1rem',
-              fontWeight: 700,
-              color: 'text.primary',
-              lineHeight: 1.3,
-            }}
+            sx={{ p: 0, fontSize: '1rem', fontWeight: 700, lineHeight: 1.3 }}
           >
             Select Denial Reason
           </DialogTitle>
         </Box>
         <Divider />
         <DialogContent sx={{ px: 3, py: 2 }}>
-          <DialogContentText
-            sx={{
-              color: 'text.secondary',
-              fontSize: '0.875rem',
-              lineHeight: 1.6,
-            }}
-          >
+          <DialogContentText sx={{ fontSize: '0.875rem', lineHeight: 1.6 }}>
             A Denial Reason must be selected before denying a claim.
           </DialogContentText>
         </DialogContent>
