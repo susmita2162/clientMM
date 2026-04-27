@@ -1,4 +1,4 @@
-// src/main.tsx - FIXED VERSION
+// src/main.tsx
 import React, { useMemo, useContext } from 'react';
 import ReactDOM from 'react-dom/client';
 import {
@@ -14,61 +14,68 @@ import ManualReviewDashboard from './pages/ManualReviewDashboard';
 import ClientManualMatchDashboard from './pages/ClientManualMatchDashboard';
 
 /**
- * Router Configuration - FIXED
+ * Router Configuration
  *
- * FIX 1: Changed formType → claimType in route parameter
+ * basename MUST match vite.config.ts `base: '/ucp-client-match-ui'`.
+ * Without it, navigate('/claim/...') targets the server root ('/claim/...')
+ * instead of '/ucp-client-match-ui/claim/...', causing silent navigation
+ * failures in the deployed environment.
  *
  * Routes:
- * 1. / → Redirects to /manual-review
- * 2. /manual-review → Manual Review Dashboard (Phase 1)
- * 3. /claim/:claimId → Client Manual Match Dashboard (direct claim access)
- * 4. /claim/:category/:claimType/next → Queue-based claim access (FIXED: claimType)
+ * 1. /                               → /manual-review (redirect)
+ * 2. /manual-review                  → ManualReviewDashboard
+ * 3. /claim/:claimId                 → ClientManualMatchDashboard (search result)
+ * 4. /claim/:category/:claimType/next→ ClientManualMatchDashboard (queue)
+ *    Examples:
+ *      /claim/manual-review/hcfa/next?stream=HEOS
+ *      /claim/manual-review/ub/next?stream=PHCS
+ *      /claim/manual-review/all/next?stream=HEOS
+ *      /claim/manual-pended/hcfa/next?stream=HEOS
  */
-const router = createBrowserRouter([
+const router = createBrowserRouter(
+  [
+    {
+      path: '/',
+      element: <App />,
+      children: [
+        // Default route - redirect to manual-review
+        {
+          index: true,
+          element: <Navigate to='/manual-review' replace />,
+        },
+
+        // Manual Review Dashboard (Phase 1)
+        {
+          path: 'manual-review',
+          element: <ManualReviewDashboard />,
+        },
+        // Direct claim access via search result (state carries HaltedClaim)
+        {
+          path: 'claim/:claimId',
+          element: <ClientManualMatchDashboard />,
+        },
+        // Queue-based access from Claims Counts table
+        {
+          path: 'claim/:category/:claimType/next',
+          element: <ClientManualMatchDashboard />,
+        },
+
+        // Fallback for unknown routes
+        {
+          path: '*',
+          element: <Navigate to='/manual-review' replace />,
+        },
+      ],
+    },
+  ],
   {
-    path: '/',
-    element: <App />,
-    children: [
-      // Default route - redirect to manual-review
-      {
-        index: true,
-        element: <Navigate to='/manual-review' replace />,
-      },
+    // Must match vite.config.ts `base` and the nginx serving path.
+    // In Docker/OKE: app is served at /ucp-client-match-ui/
+    // navigate('/claim/...') resolves to /ucp-client-match-ui/claim/...
+    basename: '/ucp-client-match-ui',
+  }
+);
 
-      // Manual Review Dashboard (Phase 1)
-      {
-        path: 'manual-review',
-        element: <ManualReviewDashboard />,
-      },
-
-      // Client Manual Match Dashboard - Direct claim access (Phase 2)
-      // Example: /claim/272120489
-      {
-        path: 'claim/:claimId',
-        element: <ClientManualMatchDashboard />,
-      },
-
-      // Client Manual Match Dashboard - Queue-based access (Phase 2)
-      // FIX 1: Changed :formType to :claimType
-      // Example: /claim/manual-review/hcfa/next?stream=HEOS
-      {
-        path: 'claim/:category/:claimType/next',
-        element: <ClientManualMatchDashboard />,
-      },
-
-      // Fallback for unknown routes
-      {
-        path: '*',
-        element: <Navigate to='/manual-review' replace />,
-      },
-    ],
-  },
-]);
-
-/**
- * Inner component that consumes theme mode and creates dynamic theme
- * This is an internal component, not exported, so we disable the fast refresh rule
- */
 // eslint-disable-next-line react-refresh/only-export-components
 function ThemedApp() {
   const context = useContext(ThemeModeContext);

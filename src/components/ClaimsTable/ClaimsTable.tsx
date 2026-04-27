@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
+  ButtonBase,
   Paper,
   Table,
   TableBody,
@@ -13,7 +14,6 @@ import {
   CircularProgress,
   Alert,
   Typography,
-  Link,
   FormControlLabel,
   Checkbox,
 } from '@mui/material';
@@ -74,6 +74,19 @@ const ClaimsTable = () => {
   const { rows, loading, error } = useClaimsData();
   const navigate = useNavigate();
 
+  /**
+   * Renders a clickable cell value.
+   *
+   * Uses MUI ButtonBase (renders as <button>) instead of <Link href="#">
+   * to avoid browser-native anchor behaviour that can conflict with
+   * React Router's programmatic navigate():
+   *   - <a href="#"> pushes a hash entry to the browser history stack
+   *     before navigate() fires, which can cause a brief URL flicker and,
+   *     in some environments, trigger the wildcard route redirect back to
+   *     /manual-review before the target route mounts.
+   *   - stopPropagation() prevents parent Collapsible toggle handlers from
+   *     intercepting the click and interfering with navigation.
+   */
   const renderClickableCell = (
     value: string | number,
     claimStream: string,
@@ -81,12 +94,12 @@ const ClaimsTable = () => {
   ) => {
     if (isClickable(value)) {
       return (
-        <Link
-          href='#'
+        <ButtonBase
           onClick={(e) => {
-            e.preventDefault();
+            // Prevent click from bubbling to Collapsible or any parent toggle handler.
+            e.stopPropagation();
             const { category, claimType } = parseColumnName(columnName);
-            // Produces URLs matching main.tsx route examples:
+            // Produces URLs matching main.tsx route:
             //   /claim/manual-review/hcfa/next?stream=HEOS
             //   /claim/manual-pended/ub/next?stream=PHCS
             //   /claim/manual-review/all/next?stream=HEOS
@@ -96,13 +109,25 @@ const ClaimsTable = () => {
           }}
           sx={{
             cursor: 'pointer',
-            textDecoration: 'none',
+            color: 'primary.main',
             fontWeight: 500,
-            '&:hover': { textDecoration: 'underline' },
+            fontSize: 'inherit',
+            fontFamily: 'inherit',
+            borderRadius: '2px',
+            px: 0.5,
+            '&:hover': {
+              textDecoration: 'underline',
+              backgroundColor: 'transparent',
+            },
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'primary.main',
+              outlineOffset: '2px',
+            },
           }}
         >
           {value}
-        </Link>
+        </ButtonBase>
       );
     }
     return value;
