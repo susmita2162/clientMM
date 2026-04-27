@@ -17,6 +17,14 @@ COPY . .
 # Jenkins injects these via --build-arg in the shared pipeline.
 # Never sourced from a .env file in source control.
 #
+# VITE_CLAIMS_SEARCH_API_URL
+#   Full base URL for the claimsearchservice.
+#   Handles: /api/clientmatch/*, /api/clientMatch/*
+#
+# VITE_CLAIM_MATCH_API_URL
+#   Full base URL for the claim-match service.
+#   Handles: /api/client-match/*
+#
 # VITE_MOCK_API_BASE_URL
 #   Full URL of the centralized mock server (dev/poc only).
 #   The server strips the /ucp-mocksvc ingress prefix internally.
@@ -27,13 +35,17 @@ COPY . .
 #   Must NOT have a trailing slash.
 # ─────────────────────────────────────────────────────────────────────────────
 
-ARG VITE_API_MODE=mock
+ARG VITE_API_MODE=live
+ARG VITE_CLAIMS_SEARCH_API_URL=https://claims-poc.dev.multiplan.com/claimsearchservice
+ARG VITE_CLAIM_MATCH_API_URL=https://claims-poc.dev.multiplan.com/claim-match
 ARG VITE_MOCK_API_BASE_URL=https://claims-poc.dev.multiplan.com/ucp-mocksvc
 ARG VITE_MEMBER_SEARCH_URL=https://claims-poc.dev.multiplan.com/ucp-member-search-ui
 ARG VITE_EMPLOYER_GROUP_URL=https://claims-poc.dev.multiplan.com/ucp-group-search-ui
 ARG VITE_BUILD_VERSION=local
 
 ENV VITE_API_MODE=${VITE_API_MODE}
+ENV VITE_CLAIMS_SEARCH_API_URL=${VITE_CLAIMS_SEARCH_API_URL}
+ENV VITE_CLAIM_MATCH_API_URL=${VITE_CLAIM_MATCH_API_URL}
 ENV VITE_MOCK_API_BASE_URL=${VITE_MOCK_API_BASE_URL}
 ENV VITE_MEMBER_SEARCH_URL=${VITE_MEMBER_SEARCH_URL}
 ENV VITE_EMPLOYER_GROUP_URL=${VITE_EMPLOYER_GROUP_URL}
