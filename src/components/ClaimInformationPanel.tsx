@@ -13,13 +13,17 @@
 //      → Pend Claim disabled, Pend Notes enabled
 //   4. onAction('pendClaim') called → parent handles navigation / next claim
 
+// Update CCode:
+//   Button is always enabled (no MFE selection required).
+//   ccode value used: selectedCcode (from MFE) when available, else claim.ccode.
+//   No dialog — direct API call.
+
 import { useState } from 'react';
 import { Alert, Box, Divider, Snackbar } from '@mui/material';
 import Collapsible from './shared/Collapsible';
 import ClaimInfoGrid from './ClaimInfoGrid';
 import ClaimActionBar from './ClaimActionBar';
 import PendDialog, { type PendMode } from './PendDialog';
-import UpdateCcodeDialog, { type UpdateCcodeForm } from './UpdateCcodeDialog';
 import { claimsApi } from '../services/claimsApi';
 import type { HaltedClaim } from '../types/claims';
 
@@ -28,7 +32,10 @@ interface Props {
   onAction: (
     action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim'
   ) => void;
-  /** CCode selected in a MFE panel — pre-fills UpdateCcodeDialog. */
+  /**
+   * CCode selected in a MFE panel (Member Search → ccode, Employer Group → clientCode).
+   * Used as the ccode value when present; falls back to claim.ccode otherwise.
+   */
   selectedCcode?: string;
   /** Defaults to 'system'. Replace with auth context value when available. */
   userName?: string;
@@ -64,9 +71,39 @@ export default function ClaimInformationPanel({
   const showSnackbar = (message: string, severity: 'success' | 'error') =>
     setSnackbar({ open: true, message, severity });
 
-  // --------------------------------------------------------------------------
-  // Pend dialog
-  // --------------------------------------------------------------------------
+  // ── Update CCode — always enabled, no dialog ───────────────────────────────
+  const handleUpdateCcodeClick = () => {
+    // Use MFE-selected ccode when available; fall back to the claim's own ccode.
+    const ccodeToSubmit = selectedCcode || claim.ccode;
+
+    setActionLoading('updateCcode');
+    claimsApi
+      .updateCcode({
+        ccode: ccodeToSubmit,
+        policy: claim.policy,
+        policyAlias: '',
+        forceCcode: false,
+        forcePolicy: false,
+        serviceDate: claim.serviceDate,
+        receiptDate: claim.dateOfReceipt,
+        claimNumber: claim.claimNumber,
+        claimType: claim.claimType,
+        statusCode: '',
+        lockedByUser: userName,
+        eligMemberId: 0,
+        ccodeRecId: 0,
+      })
+      .then(() => {
+        showSnackbar('CCode updated successfully.', 'success');
+        onAction('updateCCode');
+      })
+      .catch(() =>
+        showSnackbar('Failed to update CCode. Please try again.', 'error')
+      )
+      .finally(() => setActionLoading(null));
+  };
+
+  // ── Pend dialog ────────────────────────────────────────────────────────────
   const [pendOpen, setPendOpen] = useState(false);
   const [pendMode, setPendMode] = useState<PendMode>('pendClaim');
 
@@ -127,43 +164,7 @@ export default function ClaimInformationPanel({
       .finally(() => setActionLoading(null));
   };
 
-  // --------------------------------------------------------------------------
-  // Update CCode dialog
-  // --------------------------------------------------------------------------
-  const [updateCcodeOpen, setUpdateCcodeOpen] = useState(false);
-
-  const handleUpdateCcodeConfirm = (form: UpdateCcodeForm) => {
-    setActionLoading('updateCcode');
-    claimsApi
-      .updateCcode({
-        policy: form.policy,
-        ccode: form.ccode,
-        policyAlias: form.policyAlias,
-        forceCcode: form.forceCcode,
-        serviceDate: claim.serviceDate,
-        receiptDate: claim.dateOfReceipt,
-        claimNumber: claim.claimNumber,
-        claimType: claim.claimType,
-        statusCode: '',
-        lockedByUser: userName,
-        eligMemberId: form.eligMemberId,
-        ccodeRecId: form.ccodeRecId,
-        forcePolicy: form.forcePolicy,
-      })
-      .then(() => {
-        setUpdateCcodeOpen(false);
-        showSnackbar('CCode updated successfully.', 'success');
-        onAction('updateCCode');
-      })
-      .catch(() =>
-        showSnackbar('Failed to update CCode. Please try again.', 'error')
-      )
-      .finally(() => setActionLoading(null));
-  };
-
-  // --------------------------------------------------------------------------
-  // Render
-  // --------------------------------------------------------------------------
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
       <Collapsible title='Claim Information' defaultExpanded={true}>
@@ -175,8 +176,8 @@ export default function ClaimInformationPanel({
             anyLoading={anyLoading}
             actionLoading={actionLoading}
             isPended={isPended}
+            onUpdateCcodeClick={handleUpdateCcodeClick}
             onPendClick={handlePendClick}
-            onUpdateCcodeClick={() => setUpdateCcodeOpen(true)}
             onDenySubmit={handleDenySubmit}
           />
         </Box>
@@ -190,18 +191,6 @@ export default function ClaimInformationPanel({
         anyLoading={anyLoading}
         isSubmitting={actionLoading === 'pend'}
         onConfirm={handlePendConfirm}
-      />
-
-      {/* key forces remount on open — externalCcode is captured at mount time */}
-      <UpdateCcodeDialog
-        key={updateCcodeOpen ? claim.claimNumber : 'closed'}
-        open={updateCcodeOpen}
-        onClose={() => setUpdateCcodeOpen(false)}
-        claim={claim}
-        anyLoading={anyLoading}
-        isSubmitting={actionLoading === 'updateCcode'}
-        externalCcode={selectedCcode}
-        onConfirm={handleUpdateCcodeConfirm}
       />
 
       <Snackbar
