@@ -7,15 +7,19 @@
 //      After any action → return to /manual-review.
 //
 //   2. QUEUE MODE — /claim/:category/:claimType/next?stream=<claimStream>
-//      Route param is :claimType (NOT :formType — matches main.tsx definition).
-//      POST /nextHalted fetches the first available halted claim.
-//      lockExpiration: 15 (minutes) — claim locked to current user for 15 mins.
+//      URL param :claimType is semantic/human-readable: 'hcfa' | 'ub' | 'all'
+//      resolveApiClaimType() maps to live API values: 'H' | 'U' | ''
+//      ?stream passed as network filter to nextHalted.
+//      POST /nextHalted fetches first available halted claim.
 //      After every action → next halted claim loaded automatically.
 //      Queue empty → informational message shown.
 //
-// MFE tab rendering:
-//   Both panels always mounted. Visibility via CSS only (display none/flex).
-//   Prevents MFEs unmounting/remounting on tab switch and re-firing autoSearch.
+// Counts refresh: ManualReviewDashboard is a sibling route — it unmounts
+// on navigation to /claim/... and remounts on return to /manual-review,
+// triggering a fresh fetch in useClaimsData automatically.
+//
+// MFE panels always mounted — CSS-only tab visibility prevents
+// autoSearch re-firing on tab switch.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -42,18 +46,32 @@ import type { HaltedClaim, NextHaltedClaimResponse } from '../types/claims';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/**
- * Lock duration in minutes.
- * The claim is locked to the current user for this period.
- * If no action is taken within this window, the server releases the lock
- * and the claim re-enters the halted queue automatically.
- */
 const LOCK_EXPIRATION_MINUTES = 15;
+
+// ── URL param → live API value ────────────────────────────────────────────────
+//
+// URL (semantic)  →  nextHalted API claimType
+//   'hcfa'        →  'H'
+//   'ub'          →  'U'
+//   'all'         →  ''   (empty string = any claim type; API accepts this)
+//
+// Mapping is isolated here — ClaimsTable only deals with URL-friendly strings.
+
+function resolveApiClaimType(urlParam: string): string {
+  switch (urlParam.toLowerCase()) {
+    case 'hcfa':
+      return 'H';
+    case 'ub':
+      return 'U';
+    default:
+      return ''; // 'all' or any unrecognised value → no filter
+  }
+}
 
 // ── Queue context ─────────────────────────────────────────────────────────────
 
 interface QueueContext {
-  claimType: string; // 'HCFA' | 'UB' — uppercase
+  claimType: string; // API value: 'H' | 'U' | ''
   pended: boolean;
   network: string;
 }
@@ -94,11 +112,34 @@ function adaptNextHaltedToHaltedClaim(r: NextHaltedClaimResponse): HaltedClaim {
   };
 }
 
+// ── TabPanel (always-mounted, CSS visibility) ─────────────────────────────────
+
+interface AlwaysMountedPanelProps {
+  children: React.ReactNode;
+  visible: boolean;
+}
+
+function AlwaysMountedPanel({ children, visible }: AlwaysMountedPanelProps) {
+  return (
+    <Box
+      sx={{
+        display: visible ? 'flex' : 'none',
+        height: '100%',
+        width: '100%',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ClientManualMatchDashboard() {
-  // Route param name matches main.tsx: claim/:category/:claimType/next
-  // Previously read as 'formType' which was always undefined — fixed here.
+  // Route: claim/:category/:claimType/next
+  // :claimType from ClaimsTable: 'hcfa' | 'ub' | 'all'
   const { category, claimType: claimTypeParam } = useParams<{
     claimId?: string;
     category?: string;
@@ -133,7 +174,7 @@ export default function ClientManualMatchDashboard() {
     setSelectedCcode('');
     try {
       const response = await claimsApi.getNextHaltedClaim({
-        claimType: ctx.claimType,
+        claimType: ctx.claimType, // 'H' | 'U' | ''
         pended: ctx.pended,
         network: ctx.network,
         lockedByUser: 'SYSTEM', // replace with auth user when available
@@ -168,14 +209,12 @@ export default function ClientManualMatchDashboard() {
       return;
     }
 
-    // Mode 2 — queue: category + claimType params present.
-    // claimTypeParam comes from :claimType in the route (e.g. 'hcfa', 'ub').
+    // Mode 2 — queue: both route params must be present.
     if (category && claimTypeParam) {
-      const claimStream = searchParams.get('stream') ?? '';
       const ctx: QueueContext = {
-        claimType: claimTypeParam.toUpperCase(), // 'hcfa' → 'HCFA'
+        claimType: resolveApiClaimType(claimTypeParam), // 'hcfa'→'H', 'ub'→'U', 'all'→''
         pended: category === 'manual-pended',
-        network: claimStream,
+        network: searchParams.get('stream') ?? '',
       };
       queueContextRef.current = ctx;
       void loadNextHaltedClaim(ctx);
@@ -202,7 +241,7 @@ export default function ClientManualMatchDashboard() {
         | 'resetClaim'
     ) => {
       if (queueContextRef.current) {
-        // Queue mode — load the next claim for every action type.
+        // Queue mode — load next claim for every action type.
         void loadNextHaltedClaim(queueContextRef.current);
       } else {
         // Search result mode — return to dashboard after action.
@@ -365,15 +404,7 @@ export default function ClientManualMatchDashboard() {
             overflow: 'hidden',
           }}
         >
-          <Box
-            sx={{
-              display: activeTab === 0 ? 'flex' : 'none',
-              height: '100%',
-              width: '100%',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
+          <AlwaysMountedPanel visible={activeTab === 0}>
             <MemberSearchPanel
               network={claim.network}
               ccode={claim.ccode}
@@ -388,17 +419,9 @@ export default function ClientManualMatchDashboard() {
               highlightedFields={scenarioConfig?.memberHighlighted}
               onCcodeSelected={setSelectedCcode}
             />
-          </Box>
+          </AlwaysMountedPanel>
 
-          <Box
-            sx={{
-              display: activeTab === 1 ? 'flex' : 'none',
-              height: '100%',
-              width: '100%',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
+          <AlwaysMountedPanel visible={activeTab === 1}>
             <EmployerGroupSearchPanel
               network={claim.network}
               ccode={claim.ccode}
@@ -410,7 +433,7 @@ export default function ClientManualMatchDashboard() {
               highlightedFields={scenarioConfig?.employerHighlighted}
               onCcodeSelected={setSelectedCcode}
             />
-          </Box>
+          </AlwaysMountedPanel>
         </Box>
       </Box>
     </Box>

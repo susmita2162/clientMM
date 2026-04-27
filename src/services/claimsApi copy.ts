@@ -1,249 +1,442 @@
-// src/services/claimsApi.ts - UPDATED FOR PHASE-2
+// src/services/claimsApi.ts
+//
+// Mode-switching service:
+//   VITE_API_MODE=mock → MOCK_API_URL  (paths passed as-is to mock server)
+//   VITE_API_MODE=live → LIVE_API_URL  (buildUrl adds service prefix — see below)
+//
+// Live service routing:
+//   The Vite dev proxy (vite.config.ts) rewrites paths at dev-server level,
+//   but that proxy is NOT running in the deployed environment (Docker/OKE).
+//   buildUrl() therefore applies the same rewrite logic directly so routing
+//   is correct in both development and production:
+//
+//     /api/client-match/* → {LIVE_API_URL}/claim-match/api/client-match/*
+//     /api/clientmatch/*  → {LIVE_API_URL}/claimsearchservice/api/clientmatch/*
+//     /api/clientMatch/*  → {LIVE_API_URL}/claimsearchservice/api/clientMatch/*
+//
+//   This mirrors the vite.config.ts proxy rewrite exactly so nginx/ingress
+//   receives the correct service-prefixed path in production.
+
 import {
+  type ClaimActionResponse,
   type ClaimsResponse,
   type ClaimSearchResult,
   type DenialReason,
-  type DenialReasonsResponse,
-  type EmployerGroupSearchResult,
+  type DenyDecisionRequest,
+  type FindByClaimIdLiveResponse,
   type HaltedClaim,
-  type MemberSearchResult,
-  type QueueClaimResponse,
+  type NextHaltedClaimRequest,
+  type NextHaltedClaimResponse,
+  type PendClaimRequest,
+  type ResetSearchRequest,
+  type UpdateCcodeRequest,
 } from '../types/claims';
+import { ApiServiceError } from '../types/errorTypes';
+import { extractError, handleError } from '../utils/errorUtils';
 
-const MOCK_API_URL = (import.meta.env.VITE_MOCK_API_BASE_URL as string) || '';
+// ============================================================================
+// CONFIG
+// ============================================================================
+
+const API_MODE =
+  (import.meta.env.VITE_API_MODE as string | undefined) ?? 'mock';
+const IS_LIVE = API_MODE === 'live';
+
+const MOCK_API_URL =
+  (import.meta.env.VITE_MOCK_API_BASE_URL as string | undefined) ??
+  'http://localhost:3001';
+const LIVE_API_URL =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+const API_TIMEOUT = parseInt(
+  (import.meta.env.VITE_API_TIMEOUT as string | undefined) ?? '15000',
+  10
+);
+
+// Warn only when the env var itself is absent — the variable always has a
+// localhost fallback so checking !MOCK_API_URL would never trigger.
+if (
+  import.meta.env.DEV &&
+  !IS_LIVE &&
+  !import.meta.env.VITE_MOCK_API_BASE_URL
+) {
+  console.warn(
+    '[claimsApi] VITE_MOCK_API_BASE_URL not set — falling back to http://localhost:3001'
+  );
+}
+
+// ============================================================================
+// API PATHS — relative, service-agnostic
+// buildUrl() adds the correct service prefix in live mode.
+// Mock server handles all paths without any prefix.
+// ============================================================================
+
+const PATHS = {
+  // claimsearchservice
+  claims: '/api/clientmatch/claims',
+  findByClaimId: '/api/clientMatch/claim/findByClaimId',
+  findByClientClaimId: '/api/clientMatch/claim/findByClientClaimId',
+  // claim-match service
+  denialReasons: '/api/client-match/claim-match-action/denial-reasons',
+  nextHalted: '/api/client-match/claim-match-action/nextHalted',
+  pend: '/api/client-match/claim-match-action/pend',
+  deny: '/api/client-match/claim-match-action/deny',
+  updateCcode: '/api/client-match/claim-match-action/claim/updateCcode',
+  resetClaim: '/api/client-match/claim-match-action/claim/reset',
+  health: '/health',
+} as const;
+
+// ============================================================================
+// PRIVATE HELPERS
+// ============================================================================
+
+/**
+ * Returns headers for the current mode.
+ * Accept: application/json for live (explicit, safe across all endpoints).
+ * Content-Type is omitted — added only by getPostHeaders() for POST requests.
+ */
+function getHeaders(): Record<string, string> {
+  if (IS_LIVE) return { Accept: 'application/json' };
+  return {};
+}
+
+/** Extends getHeaders() with Content-Type for POST request bodies. */
+function getPostHeaders(): Record<string, string> {
+  return { ...getHeaders(), 'Content-Type': 'application/json' };
+}
+
+/**
+ * Builds the full request URL.
+ *
+ * Mock mode: MOCK_API_URL + path (no prefix — mock server handles all paths).
+ *
+ * Live mode: LIVE_API_URL + service-prefix + path.
+ *   Service prefix mirrors the Vite proxy rewrite in vite.config.ts so the
+ *   correct service is reached in both the Vite dev server and production nginx:
+ *     /api/client-match/* → /claim-match/api/client-match/*
+ *     /api/clientmatch/*  → /claimsearchservice/api/clientmatch/*
+ *     /api/clientMatch/*  → /claimsearchservice/api/clientMatch/*
+ */
+function buildUrl(path: string): string {
+  if (!IS_LIVE) return `${MOCK_API_URL}${path}`;
+
+  const servicePrefix = path.startsWith('/api/client-match')
+    ? '/claim-match'
+    : '/claimsearchservice';
+
+  return `${LIVE_API_URL}${servicePrefix}${path}`;
+}
+
+/**
+ * Wraps fetch() with an AbortController timeout.
+ * AbortError is mapped to HTTP 408 by handleError.
+ */
+function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), API_TIMEOUT);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+    clearTimeout(id)
+  );
+}
+
+// ============================================================================
+// ADAPTER — FindByClaimIdLiveResponse → HaltedClaim
+//
+//   HaltedClaim field   ← live source
+//   ─────────────────────────────────────────────────────────────
+//   claimNumber         ← live.claimNumber (int64 → string)
+//   clientClaimId       ← live.clientClaimNumber
+//   claimStream         ← live.lineOfBusiness
+//   claimType           ← live.claimType ("H"→HCFA, "U"→UB)
+//   dateOfReceipt       ← live.clientReceivedDate ?? live.receivedDate
+//   serviceDate         ← live.lines.line[0].serviceFromDate
+//   insuredId           ← live.insured.insuredID
+//   ccode               ← live.clientCode
+//   group               ← live.employer.employerGroupName
+//   payer               ← live.payer.payerName
+//   dateOfBirth         ← live.insured.dateOfBirth
+//   gender              ← live.insured.gender
+//   relationship        ← live.insured.relationToPatient
+//   address             ← built from live.insured.address
+//   scenario            ← additionalInfo.info[scenario]
+//   matchType           ← additionalInfo.info[matchType] ?? 'HALT'
+//   pendedClaim         ← 'N' (not yet pended when found via search)
+// ============================================================================
+
+function parseAdditionalInfo(
+  live: FindByClaimIdLiveResponse
+): Record<string, string> {
+  const items = live.additionalInfo?.info ?? [];
+  return Object.fromEntries(items.map((i) => [i.name, i.value]));
+}
+
+function buildAddressString(live: FindByClaimIdLiveResponse): string {
+  const a = live.insured?.address;
+  if (!a) return '';
+  const line1 = [a.street1, a.street2].filter(Boolean).join(' ');
+  const line2 = [a.city, a.state, a.zip].filter(Boolean).join(' ');
+  return [line1, line2].filter(Boolean).join(', ');
+}
+
+function mapClaimType(raw: string | null | undefined): 'HCFA' | 'UB' {
+  return (raw ?? '').toUpperCase() === 'U' ? 'UB' : 'HCFA';
+}
+
+function adaptFindByClaimIdResponse(
+  live: FindByClaimIdLiveResponse
+): HaltedClaim {
+  const info = parseAdditionalInfo(live);
+  const insured = live.insured ?? {};
+  const name = [insured.firstName, insured.lastName].filter(Boolean).join(' ');
+  const serviceDate = live.lines?.line?.[0]?.serviceFromDate ?? '';
+  const rawCategory = (info.category ?? '').toUpperCase();
+  const category: HaltedClaim['category'] = rawCategory.includes('PENDED')
+    ? 'MANUAL_REVIEW_PENDED'
+    : 'MANUAL_REVIEW';
+
+  return {
+    claimNumber: String(live.claimNumber ?? ''),
+    clientClaimId: live.clientClaimNumber ?? '',
+    claimStream: live.lineOfBusiness ?? '',
+    claimType: mapClaimType(live.claimType),
+    dateOfReceipt: live.clientReceivedDate ?? live.receivedDate ?? '',
+    serviceDate,
+    policy: '',
+    insuredId: insured.insuredID ?? '',
+    ccode: live.clientCode ?? '',
+    group: live.employer?.employerGroupName ?? '',
+    payer: live.payer?.payerName ?? '',
+    sender: '',
+    network: live.lineOfBusiness ?? '',
+    name,
+    dateOfBirth: insured.dateOfBirth ?? '',
+    gender: insured.gender ?? '',
+    relationship: insured.relationToPatient ?? '',
+    address: buildAddressString(live),
+    category,
+    status: 'HALTED',
+    lockedBy: null,
+    lockedAt: null,
+    pendedClaim: 'N',
+    scenario: info.scenario ?? '',
+    matchType: info.matchType ?? 'HALT',
+  };
+}
+
+// ============================================================================
+// PUBLIC API
+// ============================================================================
 
 export const claimsApi = {
   /**
-   * Fetch all claims data from the API
+   * Claim counts summary table.
+   * GET /api/clientmatch/claims  →  claimsearchservice
    */
   async getClaims(): Promise<ClaimsResponse> {
     try {
-      const response = await fetch(`${MOCK_API_URL}/api/claims`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // Double-cast (any → unknown → T) is required to avoid no-unsafe-assignment.
-      // response.json() returns Promise<any>; casting any→T directly is flagged.
-      const data = (await response.json()) as unknown as ClaimsResponse;
-      return data;
+      const response = await fetchWithTimeout(buildUrl(PATHS.claims), {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+      return (await response.json()) as ClaimsResponse;
     } catch (error) {
-      console.error('Error fetching claims data:', error);
-      throw error;
+      throw handleError(error);
     }
   },
 
   /**
-   * Fetch the list of valid denial reason codes and their display labels.
-   *
-   * Called once on Client Manual Match dashboard load — no denial reason
-   * values are ever hardcoded in the UI.
-   *
-   * @returns Array of DenialReason objects { value, label }
+   * Find halted claim by EDP Claim ID.
+   * GET /api/clientMatch/claim/findByClaimId/{id}  →  claimsearchservice
+   * 200 → adapted HaltedClaim.  404 → { found: false }.
+   */
+  async searchByClaimId(claimId: string): Promise<ClaimSearchResult> {
+    try {
+      const url = `${buildUrl(PATHS.findByClaimId)}/${encodeURIComponent(claimId)}`;
+      const response = await fetchWithTimeout(url, { headers: getHeaders() });
+
+      if (response.status === 404) {
+        return {
+          found: false,
+          error: 'NOT_FOUND',
+          message:
+            'The specified claim was not found. Either it is not a halted claim, ' +
+            'it is locked by another user, or it does not exist.',
+        };
+      }
+
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+      const live = (await response.json()) as FindByClaimIdLiveResponse;
+      return { found: true, claim: adaptFindByClaimIdResponse(live) };
+    } catch (error) {
+      throw handleError(error);
+    }
+  },
+
+  /**
+   * Find halted claim by Client Claim ID.
+   * GET /api/clientMatch/claim/findByClientClaimId/{id}  →  claimsearchservice
+   * Same live shape as findByClaimId — same adapter.
+   */
+  async searchByClientClaimId(
+    clientClaimId: string
+  ): Promise<ClaimSearchResult> {
+    try {
+      const url = `${buildUrl(PATHS.findByClientClaimId)}/${encodeURIComponent(clientClaimId)}`;
+      const response = await fetchWithTimeout(url, { headers: getHeaders() });
+
+      if (response.status === 404) {
+        return {
+          found: false,
+          error: 'NOT_FOUND',
+          message:
+            'The specified claim was not found. Either it is not a halted claim, ' +
+            'it is locked by another user, or it does not exist.',
+        };
+      }
+
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+      const live = (await response.json()) as FindByClaimIdLiveResponse;
+      return { found: true, claim: adaptFindByClaimIdResponse(live) };
+    } catch (error) {
+      throw handleError(error);
+    }
+  },
+
+  /**
+   * Denial reasons.
+   * GET /api/client-match/claim-match-action/denial-reasons  →  claim-match
+   * Live returns string[]; normalized to { value, label }[].
    */
   async getDenialReasons(): Promise<DenialReason[]> {
     try {
-      const response = await fetch(`${MOCK_API_URL}/api/claims/denial-reasons`);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = (await response.json()) as unknown as DenialReasonsResponse;
-      return data.denialReasons;
-    } catch (error) {
-      console.error('Error fetching denial reasons:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Search for a halted claim by EDP Claim ID or Client Claim ID
-   * Returns whether claim exists and is accessible
-   *
-   * @param claimId - EDP Claim ID or Client Claim ID
-   * @returns ClaimSearchResult with found status and claim data
-   */
-  async searchHaltedClaim(claimId: string): Promise<ClaimSearchResult> {
-    try {
-      const response = await fetch(
-        `${MOCK_API_URL}/api/claims/search?claimId=${encodeURIComponent(claimId)}`
-      );
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          return {
-            found: false,
-            error: 'NOT_FOUND',
-            message:
-              'The specified claim was not found. Either it is not a halted claim, it is locked by another user, or it does not exist.',
-          };
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = (await response.json()) as unknown as ClaimSearchResult;
-      return data;
-    } catch (error) {
-      console.error('Error searching for claim:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Get a specific claim by claim number
-   * Used for direct claim access via /claim/:claimId route
-   *
-   * @param claimId - Claim number
-   * @returns HaltedClaim object
-   */
-  async getClaimById(claimId: string): Promise<HaltedClaim> {
-    try {
-      const response = await fetch(
-        `${MOCK_API_URL}/api/claims/${encodeURIComponent(claimId)}`
-      );
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('Claim not found');
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = (await response.json()) as unknown as { claim: HaltedClaim };
-      return data.claim;
-    } catch (error) {
-      console.error('Error fetching claim by ID:', error);
-      throw error;
-    }
-  },
-
-  /**
-   * Get next available claim from queue
-   * Used when clicking count numbers in Claims Summary table
-   *
-   * @param params - Queue parameters (claimStream, category, claimType)
-   * @returns QueueClaimResponse with next claim
-   */
-  async getNextClaimFromQueue(params: {
-    claimStream: string;
-    category: string;
-    claimType: string;
-  }): Promise<QueueClaimResponse> {
-    try {
-      const queryParams = new URLSearchParams({
-        claimStream: params.claimStream,
-        category: params.category,
-        claimType: params.claimType,
+      const response = await fetchWithTimeout(buildUrl(PATHS.denialReasons), {
+        headers: getHeaders(),
       });
-
-      const response = await fetch(
-        `${MOCK_API_URL}/api/claims/queue/next?${queryParams}`
-      );
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          return {
-            claim: null as unknown as HaltedClaim,
-            queueKey: '',
-            message: 'No claims available in this queue',
-          };
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = (await response.json()) as unknown as QueueClaimResponse;
-      return data;
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+      const strings = (await response.json()) as string[];
+      return strings.map((s) => ({ value: s, label: s }));
     } catch (error) {
-      console.error('Error fetching next claim from queue:', error);
-      throw error;
+      throw handleError(error);
     }
   },
 
   /**
-   * Search for members by Insured ID and Network
-   * Used in Member Search micro-frontend
-   *
-   * @param params - Search parameters (insuredId, network)
-   * @returns Array of member search results
+   * Next halted claim from queue.
+   * POST /api/client-match/claim-match-action/nextHalted  →  claim-match
+   * 404 → null (queue empty).
    */
-  async searchMembers(params: {
-    insuredId: string;
-    network: string;
-  }): Promise<MemberSearchResult[]> {
+  async getNextHaltedClaim(
+    params: NextHaltedClaimRequest
+  ): Promise<NextHaltedClaimResponse | null> {
     try {
-      const queryParams = new URLSearchParams({
-        insuredId: params.insuredId,
-        network: params.network,
+      const response = await fetchWithTimeout(buildUrl(PATHS.nextHalted), {
+        method: 'POST',
+        headers: getPostHeaders(),
+        body: JSON.stringify(params),
       });
-
-      const response = await fetch(
-        `${MOCK_API_URL}/api/members/search?${queryParams}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = (await response.json()) as unknown as {
-        members: MemberSearchResult[];
-      };
-      return data.members ?? [];
+      if (response.status === 404) return null;
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+      return (await response.json()) as NextHaltedClaimResponse;
     } catch (error) {
-      console.error('Error searching members:', error);
-      throw error;
+      throw handleError(error);
     }
   },
 
+  /** POST /api/client-match/claim-match-action/pend */
   /**
-   * Search for employer groups by Insured ID and Network
-   * sUsed in Employer Group Search micro-frontend
+   * Pend a claim.
+   * POST /api/client-match/claim-match-action/pend
    *
-   * @param params - Search parameters (insuredId, network)
-   * @returns Array of employer group search results
-   */
-  async searchEmployerGroups(params: {
-    insuredId: string;
-    network: string;
-  }): Promise<EmployerGroupSearchResult[]> {
+   * Request:  PendClaimRequest
+   * Response: {} on 200 — modelled as void.
+   */ async pendClaim(params: PendClaimRequest): Promise<void> {
     try {
-      const queryParams = new URLSearchParams({
-        insuredId: params.insuredId,
-        network: params.network,
+      const response = await fetchWithTimeout(buildUrl(PATHS.pend), {
+        method: 'POST',
+        headers: getPostHeaders(),
+        body: JSON.stringify(params),
       });
-
-      const response = await fetch(
-        `${MOCK_API_URL}/api/employer-groups/search?${queryParams}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = (await response.json()) as unknown as {
-        employerGroups: EmployerGroupSearchResult[];
-      };
-      return data.employerGroups ?? [];
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
     } catch (error) {
-      console.error('Error searching employer groups:', error);
-      throw error;
+      throw handleError(error);
     }
   },
 
   /**
-   * Health check endpoint
+   * Deny a claim.
+   * POST /api/client-match/claim-match-action/deny
+   *
+   * Request:  DenyDecisionRequest
+   * Response: ClaimActionResponse { header, status }
    */
-  async healthCheck(): Promise<{ status: string; message: string }> {
+  async denyClaim(params: DenyDecisionRequest): Promise<ClaimActionResponse> {
     try {
-      const response = await fetch(`${MOCK_API_URL}/health`);
-      return (await response.json()) as unknown as {
-        status: string;
-        message: string;
-      };
+      const response = await fetchWithTimeout(buildUrl(PATHS.deny), {
+        method: 'POST',
+        headers: getPostHeaders(),
+        body: JSON.stringify(params),
+      });
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+      return (await response.json()) as ClaimActionResponse;
     } catch (error) {
-      console.error('Health check failed:', error);
-      throw error;
+      throw handleError(error);
+    }
+  },
+
+  /**
+   * Update CCode for a claim.
+   * POST /api/client-match/claim-match-action/claim/updateCcode
+   *
+   * Request:  UpdateCcodeRequest
+   * Response: ClaimActionResponse { header, status }
+   * 409: CCode validation failed — thrown as ApiServiceError.
+   */
+  async updateCcode(params: UpdateCcodeRequest): Promise<ClaimActionResponse> {
+    try {
+      const response = await fetchWithTimeout(buildUrl(PATHS.updateCcode), {
+        method: 'POST',
+        headers: getPostHeaders(),
+        body: JSON.stringify(params),
+      });
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+      return (await response.json()) as ClaimActionResponse;
+    } catch (error) {
+      throw handleError(error);
+    }
+  },
+
+  /**
+   * Reset claims group data search info.
+   * POST /api/client-match/claim-match-action/claim/reset
+   *
+   * Request:  ResetSearchRequest
+   * Response: {} on 200 — modelled as void.
+   */
+  async resetClaim(params: ResetSearchRequest): Promise<void> {
+    try {
+      const response = await fetchWithTimeout(buildUrl(PATHS.resetClaim), {
+        method: 'POST',
+        headers: getPostHeaders(),
+        body: JSON.stringify(params),
+      });
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+    } catch (error) {
+      throw handleError(error);
+    }
+  },
+
+  /** GET /health */
+  async healthCheck(): Promise<{ status: string }> {
+    try {
+      const response = await fetchWithTimeout(buildUrl(PATHS.health), {
+        headers: getHeaders(),
+      });
+      if (!response.ok) throw new ApiServiceError(await extractError(response));
+      return (await response.json()) as { status: string };
+    } catch (error) {
+      throw handleError(error);
     }
   },
 };

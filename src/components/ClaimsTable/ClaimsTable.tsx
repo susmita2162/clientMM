@@ -31,32 +31,44 @@ import {
 } from './utils';
 
 /**
- * Helper function to parse column name and determine queue parameters
- * Maps UI column names to API category and claim type
+ * Maps a UI column name to URL-friendly route parameters.
+ *
+ * URL values (semantic, human-readable — matches main.tsx route examples):
+ *   claimType: 'hcfa' | 'ub' | 'all'
+ *   category:  'manual-review' | 'manual-pended'
+ *
+ * API value mapping ('hcfa'→'H', 'ub'→'U', 'all'→'') is the
+ * responsibility of ClientManualMatchDashboard, not this component.
+ *
+ * Column → { category, claimType }:
+ *   Total Claim Count              → manual-review,  all
+ *   Manual Review (Total)          → manual-review,  all
+ *   Manual Review Pended (Total)   → manual-pended,  all
+ *   Manual Review - HCFA           → manual-review,  hcfa
+ *   Manual Review - UB             → manual-review,  ub
+ *   Manual Review Pended - HCFA    → manual-pended,  hcfa
+ *   Manual Review Pended - UB      → manual-pended,  ub
  */
 const parseColumnName = (
   columnName: string
 ): { category: string; claimType: string } => {
-  const lowerName = columnName.toLowerCase();
+  const lower = columnName.toLowerCase();
 
-  const category = lowerName.includes('pended')
-    ? 'manual-pended'
-    : 'manual-review';
+  const category = lower.includes('pended') ? 'manual-pended' : 'manual-review';
 
-  const claimType = lowerName.includes('ub') ? 'ub' : 'hcfa';
+  let claimType: string;
+  if (lower.includes('hcfa')) {
+    claimType = 'hcfa';
+  } else if (lower.includes('ub')) {
+    claimType = 'ub';
+  } else {
+    // Total column — no specific claim type filter
+    claimType = 'all';
+  }
 
   return { category, claimType };
 };
 
-/**
- * Main ClaimsTable Component
- *
- * Features:
- * - Toggle between aggregated and detailed views
- * - Clickable cells for values > 0 (navigates to queue)
- * - Dark mode support
- * - Responsive design
- */
 const ClaimsTable = () => {
   const [showClaimType, setShowClaimType] = useState(false);
   const { rows, loading, error } = useClaimsData();
@@ -74,18 +86,19 @@ const ClaimsTable = () => {
           onClick={(e) => {
             e.preventDefault();
             const { category, claimType } = parseColumnName(columnName);
-            // void: navigate returns Promise<void> in React Router v6
+            // Produces URLs matching main.tsx route examples:
+            //   /claim/manual-review/hcfa/next?stream=HEOS
+            //   /claim/manual-pended/ub/next?stream=PHCS
+            //   /claim/manual-review/all/next?stream=HEOS
             void navigate(
-              `/claim/${category}/${claimType}/next?stream=${claimStream}`
+              `/claim/${category}/${claimType}/next?stream=${encodeURIComponent(claimStream)}`
             );
           }}
           sx={{
             cursor: 'pointer',
             textDecoration: 'none',
             fontWeight: 500,
-            '&:hover': {
-              textDecoration: 'underline',
-            },
+            '&:hover': { textDecoration: 'underline' },
           }}
         >
           {value}
@@ -161,11 +174,7 @@ const ClaimsTable = () => {
               <Checkbox
                 checked={showClaimType}
                 onChange={(e) => setShowClaimType(e.target.checked)}
-                sx={{
-                  '& .MuiSvgIcon-root': {
-                    fontSize: { xs: 20, sm: 24 },
-                  },
-                }}
+                sx={{ '& .MuiSvgIcon-root': { fontSize: { xs: 20, sm: 24 } } }}
               />
             }
             label={
@@ -181,9 +190,7 @@ const ClaimsTable = () => {
             }
             sx={{
               m: 0,
-              '& .MuiFormControlLabel-label': {
-                userSelect: 'none',
-              },
+              '& .MuiFormControlLabel-label': { userSelect: 'none' },
             }}
           />
         </Box>
@@ -211,7 +218,6 @@ const ClaimsTable = () => {
                   >
                     Claim Stream
                   </TableCell>
-
                   <TableCell
                     rowSpan={2}
                     align='center'

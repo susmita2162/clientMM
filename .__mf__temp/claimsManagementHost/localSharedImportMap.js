@@ -150,18 +150,18 @@
     }
       const usedRemotes = [
                 {
-                  entryGlobalName: "memberSearchApp",
-                  name: "memberSearchApp",
-                  type: "module",
-                  entry: "http://localhost:3002/ucp-member-search-ui/remoteEntry.js",
-                  shareScope: "default",
-                }
-          ,
-                {
                   entryGlobalName: "employerGroupSearchApp",
                   name: "employerGroupSearchApp",
                   type: "module",
                   entry: "http://localhost:3003/ucp-group-search-ui/remoteEntry.js",
+                  shareScope: "default",
+                }
+          ,
+                {
+                  entryGlobalName: "memberSearchApp",
+                  name: "memberSearchApp",
+                  type: "module",
+                  entry: "http://localhost:3002/ucp-member-search-ui/remoteEntry.js",
                   shareScope: "default",
                 }
           
