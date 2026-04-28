@@ -5,6 +5,8 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
 import type { EmployerGroupField } from '../utils/scenarioFieldConfig';
 
+// ── MFE widget contract ───────────────────────────────────────────────────────
+
 interface EmployerGroupSearchWidgetProps {
   ccode: string;
   network: string;
@@ -25,6 +27,8 @@ const EmployerGroupSearchWidget = lazy(
   React.ComponentType<EmployerGroupSearchWidgetProps>
 >;
 
+// ── Public panel props ────────────────────────────────────────────────────────
+
 export interface EmployerGroupSearchPanelProps {
   network: string;
   ccode: string;
@@ -38,12 +42,14 @@ export interface EmployerGroupSearchPanelProps {
   onCcodeSelected?: (ccode: string) => void;
 }
 
+// ── Fallback ──────────────────────────────────────────────────────────────────
+
 function EmployerGroupSearchFallback() {
   return (
     <Box
       sx={{
         display: 'flex',
-        flexDirection: 'column', // was missing — caused side-by-side layout
+        flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '400px',
@@ -58,13 +64,16 @@ function EmployerGroupSearchFallback() {
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 /** Extract clientCode from the MFE employer group selection payload. */
 function extractClientCode(group: unknown): string {
   if (!group || typeof group !== 'object') return '';
   const g = group as Record<string, unknown>;
-  const value = g.clientCode;
-  return typeof value === 'string' ? value : '';
+  return typeof g.clientCode === 'string' ? g.clientCode : '';
 }
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function EmployerGroupSearchPanel({
   network,
@@ -78,17 +87,15 @@ export default function EmployerGroupSearchPanel({
   onCcodeSelected,
 }: EmployerGroupSearchPanelProps) {
   const handleEmployerGroupSelected = (group: unknown) => {
-    if (onCcodeSelected) {
-      const extracted = extractClientCode(group);
-      if (extracted) onCcodeSelected(extracted);
-    }
+    if (!onCcodeSelected) return;
+    const extracted = extractClientCode(group);
+    if (extracted) onCcodeSelected(extracted);
   };
 
   const handleClientCodeSelected = (client: unknown) => {
-    if (onCcodeSelected) {
-      const extracted = extractClientCode(client);
-      if (extracted) onCcodeSelected(extracted);
-    }
+    if (!onCcodeSelected) return;
+    const extracted = extractClientCode(client);
+    if (extracted) onCcodeSelected(extracted);
   };
 
   return (

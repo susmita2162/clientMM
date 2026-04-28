@@ -5,6 +5,8 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
 import type { MemberSearchField } from '../utils/scenarioFieldConfig';
 
+// ── MFE widget contract ───────────────────────────────────────────────────────
+
 interface MemberSearchWidgetProps {
   network: string;
   ccode: string;
@@ -26,6 +28,8 @@ const MemberSearchWidget = lazy(
   () => import('memberSearchApp/MemberSearchWidget')
 ) as React.LazyExoticComponent<React.ComponentType<MemberSearchWidgetProps>>;
 
+// ── Public panel props ────────────────────────────────────────────────────────
+
 export interface MemberSearchPanelProps {
   network: string;
   ccode: string;
@@ -41,6 +45,8 @@ export interface MemberSearchPanelProps {
   /** Called with ccode when the user selects a member in the MFE. */
   onCcodeSelected?: (ccode: string) => void;
 }
+
+// ── Fallback ──────────────────────────────────────────────────────────────────
 
 function MemberSearchFallback() {
   return (
@@ -62,13 +68,16 @@ function MemberSearchFallback() {
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 /** Extract ccode from the MFE member selection payload. */
 function extractCcode(member: unknown): string {
   if (!member || typeof member !== 'object') return '';
   const m = member as Record<string, unknown>;
-  const value = m.ccode;
-  return typeof value === 'string' ? value : '';
+  return typeof m.ccode === 'string' ? m.ccode : '';
 }
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function MemberSearchPanel({
   network,
@@ -85,10 +94,9 @@ export default function MemberSearchPanel({
   onCcodeSelected,
 }: MemberSearchPanelProps) {
   const handleMemberSelected = (member: unknown) => {
-    if (onCcodeSelected) {
-      const extracted = extractCcode(member);
-      if (extracted) onCcodeSelected(extracted);
-    }
+    if (!onCcodeSelected) return;
+    const extracted = extractCcode(member);
+    if (extracted) onCcodeSelected(extracted);
   };
 
   return (

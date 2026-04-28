@@ -7,7 +7,7 @@
 //
 // This reflects the workflow: a halted claim arrives un-pended; the user
 // pends it first (Pend Claim), after which they can update notes (Pend Notes).
-
+//
 // Update CCode: always enabled. No hasSelectedCcode gate.
 // Pend Claim:   enabled when isPended=false.
 // Pend Notes:   enabled when isPended=true.
@@ -30,8 +30,11 @@ import {
 } from '@mui/material';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import { claimsApi } from '../services/claimsApi';
+import { ApiServiceError, getErrorMessage } from '../types/errorTypes';
 import type { DenialReason, HaltedClaim } from '../types/claims';
 import type { PendMode } from './PendDialog';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   claim: HaltedClaim;
@@ -49,6 +52,8 @@ interface Props {
   onDenySubmit: (reason: string) => void;
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function ClaimActionBar({
   claim,
   anyLoading,
@@ -63,18 +68,24 @@ export default function ClaimActionBar({
   // --------------------------------------------------------------------------
   const [denialReasons, setDenialReasons] = useState<DenialReason[]>([]);
   const [reasonsLoading, setReasonsLoading] = useState(true);
-  const [reasonsError, setReasonsError] = useState(false);
+  const [reasonsError, setReasonsError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const fetchReasons = async () => {
       setReasonsLoading(true);
-      setReasonsError(false);
+      setReasonsError(null);
       try {
         const reasons = await claimsApi.getDenialReasons();
         if (!cancelled) setDenialReasons(reasons);
-      } catch {
-        if (!cancelled) setReasonsError(true);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const message =
+            err instanceof ApiServiceError
+              ? getErrorMessage(err)
+              : 'Failed to load denial reasons.';
+          setReasonsError(message);
+        }
       } finally {
         if (!cancelled) setReasonsLoading(false);
       }
@@ -133,6 +144,7 @@ export default function ClaimActionBar({
           alignItems: 'center',
         }}
       >
+        {/* Update CCode — always enabled */}
         <Button
           variant='contained'
           color='primary'
@@ -188,7 +200,7 @@ export default function ClaimActionBar({
         <FormControl
           size='small'
           sx={{ minWidth: 160 }}
-          disabled={reasonsLoading || reasonsError || anyLoading}
+          disabled={reasonsLoading || !!reasonsError || anyLoading}
         >
           <Select
             id='denial-reason'

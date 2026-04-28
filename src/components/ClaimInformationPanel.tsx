@@ -12,11 +12,12 @@
 //   3. API succeeds → setIsPended(true)
 //      → Pend Claim disabled, Pend Notes enabled
 //   4. onAction('pendClaim') called → parent handles navigation / next claim
-
+//
 // Update CCode:
-//   Button is always enabled (no MFE selection required).
 //   ccode value used: selectedCcode (from MFE) when available, else claim.ccode.
-//   No dialog — direct API call.
+//   No dialog — direct POST.
+//   selectedCcode is ALSO forwarded to ClaimInfoGrid so the Client Code field
+//   reflects the pending selection in real-time before the user hits the button.
 
 import { useState } from 'react';
 import { Alert, Box, Divider, Snackbar } from '@mui/material';
@@ -25,7 +26,10 @@ import ClaimInfoGrid from './ClaimInfoGrid';
 import ClaimActionBar from './ClaimActionBar';
 import PendDialog, { type PendMode } from './PendDialog';
 import { claimsApi } from '../services/claimsApi';
+import { ApiServiceError, getErrorMessage } from '../types/errorTypes';
 import type { HaltedClaim } from '../types/claims';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
   claim: HaltedClaim;
@@ -33,13 +37,34 @@ interface Props {
     action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim'
   ) => void;
   /**
-   * CCode selected in a MFE panel (Member Search → ccode, Employer Group → clientCode).
-   * Used as the ccode value when present; falls back to claim.ccode otherwise.
+   * CCode selected in a MFE panel (Member Search → ccode,
+   * Employer Group Search → clientCode).
+   *
+   * Two roles:
+   *   1. Forwarded to ClaimInfoGrid → "Client Code" field updates live.
+   *   2. Used as the ccode payload in the Update CCode POST.
+   *      Falls back to claim.ccode when absent.
    */
   selectedCcode?: string;
   /** Defaults to 'system'. Replace with auth context value when available. */
   userName?: string;
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Extracts a user-friendly message from any thrown value.
+ * ApiServiceError instances are handled via getErrorMessage; all other
+ * thrown values fall back to the provided defaultMessage.
+ */
+function resolveErrorMessage(err: unknown, defaultMessage: string): string {
+  if (err instanceof ApiServiceError) {
+    return getErrorMessage(err);
+  }
+  return defaultMessage;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ClaimInformationPanel({
   claim,
@@ -47,10 +72,9 @@ export default function ClaimInformationPanel({
   selectedCcode,
   userName = 'system',
 }: Props) {
-  // --------------------------------------------------------------------------
-  // Pend state — local so it can be updated after a successful API call
-  // without a re-fetch. Initialised from claim.pendedClaim on mount.
-  // --------------------------------------------------------------------------
+  // ── Pend state ─────────────────────────────────────────────────────────────
+  // Local so it updates immediately after a successful API call without a
+  // re-fetch. Initialised from claim.pendedClaim on mount.
   const [isPended, setIsPended] = useState(claim.pendedClaim === 'Y');
 
   // --------------------------------------------------------------------------
@@ -71,9 +95,10 @@ export default function ClaimInformationPanel({
   const showSnackbar = (message: string, severity: 'success' | 'error') =>
     setSnackbar({ open: true, message, severity });
 
-  // ── Update CCode — always enabled, no dialog ───────────────────────────────
+  // ── Update CCode ───────────────────────────────────────────────────────────
+  // Uses selectedCcode when available; falls back to claim.ccode.
+  // No dialog — direct POST.
   const handleUpdateCcodeClick = () => {
-    // Use MFE-selected ccode when available; fall back to the claim's own ccode.
     const ccodeToSubmit = selectedCcode || claim.ccode;
 
     setActionLoading('updateCcode');
@@ -97,8 +122,11 @@ export default function ClaimInformationPanel({
         showSnackbar('CCode updated successfully.', 'success');
         onAction('updateCCode');
       })
-      .catch(() =>
-        showSnackbar('Failed to update CCode. Please try again.', 'error')
+      .catch((err: unknown) =>
+        showSnackbar(
+          resolveErrorMessage(err, 'Failed to update CCode. Please try again.'),
+          'error'
+        )
       )
       .finally(() => setActionLoading(null));
   };
@@ -126,7 +154,6 @@ export default function ClaimInformationPanel({
       })
       .then(() => {
         setPendOpen(false);
-        // Update local pend state so button states reflect the change immediately.
         // pendClaim → isPended becomes true (Pend Claim disabled, Pend Notes enabled).
         // pendNotes → pend state unchanged (claim was already pended).
         if (pendMode === 'pendClaim') {
@@ -135,8 +162,11 @@ export default function ClaimInformationPanel({
         showSnackbar('Claim pended successfully.', 'success');
         onAction(pendMode);
       })
-      .catch(() =>
-        showSnackbar('Failed to pend claim. Please try again.', 'error')
+      .catch((err: unknown) =>
+        showSnackbar(
+          resolveErrorMessage(err, 'Failed to pend claim. Please try again.'),
+          'error'
+        )
       )
       .finally(() => setActionLoading(null));
   };
@@ -158,8 +188,11 @@ export default function ClaimInformationPanel({
         showSnackbar('Claim denied successfully.', 'success');
         onAction('denyClaim');
       })
-      .catch(() =>
-        showSnackbar('Failed to deny claim. Please try again.', 'error')
+      .catch((err: unknown) =>
+        showSnackbar(
+          resolveErrorMessage(err, 'Failed to deny claim. Please try again.'),
+          'error'
+        )
       )
       .finally(() => setActionLoading(null));
   };
@@ -169,8 +202,13 @@ export default function ClaimInformationPanel({
     <>
       <Collapsible title='Claim Information' defaultExpanded={true}>
         <Box sx={{ p: 1.5 }}>
-          <ClaimInfoGrid claim={claim} />
-          <Divider sx={{ my: 1 }} />
+          {/*
+            selectedCcode is forwarded so ClaimInfoGrid can display the
+            live-selected value in the "Client Code" field before the user
+            commits it via Update CCode.
+          */}
+          <ClaimInfoGrid claim={claim} selectedCcode={selectedCcode} />
+          {/* <Divider sx={{ my: 1 }} /> */}
           <ClaimActionBar
             claim={claim}
             anyLoading={anyLoading}
