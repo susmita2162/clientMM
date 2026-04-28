@@ -29,109 +29,145 @@ import {
   columnWidths,
   getBandedRowStyle,
 } from './utils';
+import { claimsApi } from '../../services/claimsApi';
+import { adaptNextHaltedToHaltedClaim } from '../../utils/claimAdapters';
 
-/**
- * Maps a UI column name to URL-friendly route parameters.
- *
- * URL values (semantic, human-readable — matches main.tsx route examples):
- *   claimType: 'hcfa' | 'ub' | 'all'
- *   category:  'manual-review' | 'manual-pended'
- *
- * API value mapping ('hcfa'→'H', 'ub'→'U', 'all'→'') is the
- * responsibility of ClientManualMatchDashboard, not this component.
- *
- * Column → { category, claimType }:
- *   Total Claim Count              → manual-review,  all
- *   Manual Review (Total)          → manual-review,  all
- *   Manual Review Pended (Total)   → manual-pended,  all
- *   Manual Review - HCFA           → manual-review,  hcfa
- *   Manual Review - UB             → manual-review,  ub
- *   Manual Review Pended - HCFA    → manual-pended,  hcfa
- *   Manual Review Pended - UB      → manual-pended,  ub
- */
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 const parseColumnName = (
   columnName: string
 ): { category: string; claimType: string } => {
   const lower = columnName.toLowerCase();
-
   const category = lower.includes('pended') ? 'manual-pended' : 'manual-review';
-
   let claimType: string;
-  if (lower.includes('hcfa')) {
-    claimType = 'hcfa';
-  } else if (lower.includes('ub')) {
-    claimType = 'ub';
-  } else {
-    // Total column — no specific claim type filter
-    claimType = 'all';
-  }
-
+  if (lower.includes('hcfa')) claimType = 'hcfa';
+  else if (lower.includes('ub')) claimType = 'ub';
+  else claimType = 'all';
   return { category, claimType };
 };
 
+/** 'hcfa' → 'H' | 'ub' → 'U' | 'all' → '' */
+const resolveApiClaimType = (claimType: string): string => {
+  switch (claimType) {
+    case 'hcfa':
+      return 'H';
+    case 'ub':
+      return 'U';
+    default:
+      return '';
+  }
+};
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 const ClaimsTable = () => {
   const [showClaimType, setShowClaimType] = useState(false);
+
+  // Per-cell loading key: "<claimStream>-<columnName>" | null.
+  // Tracks exactly which cell is loading so only that cell shows a spinner
+  // and all others are disabled (not spinning) during a pending request.
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+
+  const [navError, setNavError] = useState<string | null>(null);
+
   const { rows, loading, error } = useClaimsData();
   const navigate = useNavigate();
 
   /**
-   * Renders a clickable cell value.
+   * Calls nextHalted directly, then navigates to ClientManualMatchDashboard
+   * with the claim + queueContext in router state.
    *
-   * Uses MUI ButtonBase (renders as <button>) instead of <Link href="#">
-   * to avoid browser-native anchor behaviour that can conflict with
-   * React Router's programmatic navigate():
-   *   - <a href="#"> pushes a hash entry to the browser history stack
-   *     before navigate() fires, which can cause a brief URL flicker and,
-   *     in some environments, trigger the wildcard route redirect back to
-   *     /manual-review before the target route mounts.
-   *   - stopPropagation() prevents parent Collapsible toggle handlers from
-   *     intercepting the click and interfering with navigation.
+   * No intermediate route. ClientManualMatchDashboard reads the claim from
+   * location.state and uses queueContext to auto-advance after each action.
    */
+  const handleCellClick = async (
+    claimStream: string,
+    columnName: string
+  ): Promise<void> => {
+    const key = `${claimStream}-${columnName}`;
+    const { category, claimType } = parseColumnName(columnName);
+    const apiClaimType = resolveApiClaimType(claimType);
+
+    setLoadingKey(key);
+    setNavError(null);
+
+    try {
+      const response = await claimsApi.getNextHaltedClaim({
+        claimType: apiClaimType,
+        pended: category === 'manual-pended',
+        network: claimStream,
+        lockedByUser: 'SYSTEM', // replace with auth user when available
+        lockExpiration: 15,
+      });
+
+      if (response) {
+        const claim = adaptNextHaltedToHaltedClaim(response);
+        void navigate(`/claim/${claim.claimNumber}`, {
+          state: {
+            claim,
+            // queueContext lets ClientManualMatchDashboard auto-advance
+            // to the next halted claim after every action.
+            queueContext: {
+              claimType: apiClaimType,
+              pended: category === 'manual-pended',
+              network: claimStream,
+            },
+          },
+        });
+      } else {
+        setNavError('No halted claims are available for this selection.');
+      }
+    } catch {
+      setNavError('Failed to load claim. Please try again.');
+    } finally {
+      setLoadingKey(null);
+    }
+  };
+
   const renderClickableCell = (
     value: string | number,
     claimStream: string,
     columnName: string
   ) => {
-    if (isClickable(value)) {
-      return (
-        <ButtonBase
-          onClick={(e) => {
-            // Prevent click from bubbling to Collapsible or any parent toggle handler.
-            e.stopPropagation();
-            const { category, claimType } = parseColumnName(columnName);
-            // Produces URLs matching main.tsx route:
-            //   /claim/manual-review/hcfa/next?stream=HEOS
-            //   /claim/manual-pended/ub/next?stream=PHCS
-            //   /claim/manual-review/all/next?stream=HEOS
-            void navigate(
-              `/claim/${category}/${claimType}/next?stream=${encodeURIComponent(claimStream)}`
-            );
-          }}
-          sx={{
-            cursor: 'pointer',
-            color: 'primary.main',
-            fontWeight: 500,
-            fontSize: 'inherit',
-            fontFamily: 'inherit',
-            borderRadius: '2px',
-            px: 0.5,
-            '&:hover': {
-              textDecoration: 'underline',
-              backgroundColor: 'transparent',
-            },
-            '&:focus-visible': {
-              outline: '2px solid',
-              outlineColor: 'primary.main',
-              outlineOffset: '2px',
-            },
-          }}
-        >
-          {value}
-        </ButtonBase>
-      );
-    }
-    return value;
+    if (!isClickable(value)) return value;
+
+    const key = `${claimStream}-${columnName}`;
+    const isThisLoading = loadingKey === key;
+    const anyLoading = loadingKey !== null;
+
+    return (
+      <ButtonBase
+        disabled={anyLoading}
+        onClick={(e) => {
+          e.stopPropagation();
+          void handleCellClick(claimStream, columnName);
+        }}
+        sx={{
+          cursor: anyLoading ? 'wait' : 'pointer',
+          color: 'primary.main',
+          fontWeight: 500,
+          fontSize: 'inherit',
+          fontFamily: 'inherit',
+          borderRadius: '2px',
+          width: '100%',
+          px: 0.5,
+          '&:hover': {
+            textDecoration: 'underline',
+            backgroundColor: 'transparent',
+          },
+          '&:focus-visible': {
+            outline: '2px solid',
+            outlineColor: 'primary.main',
+            outlineOffset: '2px',
+          },
+        }}
+      >
+        {isThisLoading ? <CircularProgress size={12} /> : value}
+      </ButtonBase>
+    );
   };
+
+  // ── Loading / Error ───────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -163,6 +199,8 @@ const ClaimsTable = () => {
     );
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <Box
       sx={{
@@ -184,7 +222,16 @@ const ClaimsTable = () => {
           flexDirection: 'column',
         }}
       >
-        {/* Header with Checkbox */}
+        {navError && (
+          <Alert
+            severity='warning'
+            sx={{ mb: 1.5 }}
+            onClose={() => setNavError(null)}
+          >
+            {navError}
+          </Alert>
+        )}
+
         <Box
           sx={{
             display: 'flex',
@@ -220,7 +267,6 @@ const ClaimsTable = () => {
           />
         </Box>
 
-        {/* Table */}
         <Paper elevation={3} sx={{ width: '100%', overflow: 'hidden' }}>
           <TableContainer sx={{ maxHeight: 'calc(100vh - 200px)' }}>
             <Table
@@ -228,9 +274,7 @@ const ClaimsTable = () => {
               sx={{ minWidth: 650, tableLayout: 'auto' }}
               aria-label='claims summary table'
             >
-              {/* TABLE HEAD */}
               <TableHead>
-                {/* Row 1: Group Headers */}
                 <TableRow>
                   <TableCell
                     rowSpan={2}
@@ -254,7 +298,6 @@ const ClaimsTable = () => {
                   >
                     Total claim count
                   </TableCell>
-
                   {showClaimType ? (
                     <>
                       <TableCell
@@ -307,8 +350,6 @@ const ClaimsTable = () => {
                     </>
                   )}
                 </TableRow>
-
-                {/* Row 2: Sub-headers (only in detailed view) */}
                 {showClaimType && (
                   <TableRow>
                     <TableCell
@@ -356,7 +397,6 @@ const ClaimsTable = () => {
                 )}
               </TableHead>
 
-              {/* TABLE BODY */}
               <TableBody>
                 {rows.map((row, index) => (
                   <TableRow key={row.claimStream} sx={getBandedRowStyle(index)}>
@@ -368,7 +408,6 @@ const ClaimsTable = () => {
                     >
                       {row.claimStream}
                     </TableCell>
-
                     <TableCell align='center' sx={dataCell}>
                       {renderClickableCell(
                         row.totalClaimCount,
@@ -376,7 +415,6 @@ const ClaimsTable = () => {
                         'Total Claim Count'
                       )}
                     </TableCell>
-
                     {showClaimType ? (
                       <>
                         <TableCell align='center' sx={dataCell}>

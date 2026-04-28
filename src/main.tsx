@@ -54,13 +54,6 @@ const router = createBrowserRouter(
           path: 'claim/:claimId',
           element: <ClientManualMatchDashboard />,
         },
-        // Queue-based access from Claims Counts table
-        {
-          path: 'claim/:category/:claimType/next',
-          element: <ClientManualMatchDashboard />,
-        },
-
-        // Fallback for unknown routes
         {
           path: '*',
           element: <Navigate to='/manual-review' replace />,

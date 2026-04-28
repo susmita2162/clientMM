@@ -1,33 +1,17 @@
 // src/pages/ClientManualMatchDashboard.tsx
 //
-// Two valid entry modes:
+// Single entry point: claim always arrives via router state.
 //
-//   1. SEARCH RESULT  — /claim/:claimId
-//      Claim arrives via router state { claim: HaltedClaim }. No API call.
-//      After any action → return to /manual-review.
+//   state = { claim: HaltedClaim }
+//     → Search result mode. After any action → return to /manual-review.
 //
-//   2. QUEUE MODE — /claim/:category/:claimType/next?stream=<claimStream>
-//      URL param :claimType is semantic/human-readable: 'hcfa' | 'ub' | 'all'
-//      resolveApiClaimType() maps to live API values: 'H' | 'U' | ''
-//      ?stream passed as network filter to nextHalted.
-//      POST /nextHalted fetches first available halted claim.
-//      After every action → next halted claim loaded automatically.
-//      Queue empty → informational message shown.
-//
-// Counts refresh: ManualReviewDashboard is a sibling route — it unmounts
-// on navigation to /claim/... and remounts on return to /manual-review,
-// triggering a fresh fetch in useClaimsData automatically.
-//
-// MFE panels always mounted — CSS-only tab visibility prevents
-// autoSearch re-firing on tab switch.
+//   state = { claim: HaltedClaim, queueContext: QueueContext }
+//     → Queue mode (from Claims Counts table). After every action →
+//       nextHalted called again with queueContext → next claim loaded.
+//       Queue empty → informational message shown.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  useLocation,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -42,33 +26,14 @@ import MemberSearchPanel from '../components/MemberSearchPanel';
 import EmployerGroupSearchPanel from '../components/EmployerGroupSearchPanel';
 import { claimsApi } from '../services/claimsApi';
 import { getScenarioConfig } from '../utils/scenarioFieldConfig';
-import type { HaltedClaim, NextHaltedClaimResponse } from '../types/claims';
+import { adaptNextHaltedToHaltedClaim } from '../utils/claimAdapters';
+import type { HaltedClaim } from '../types/claims';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const LOCK_EXPIRATION_MINUTES = 15;
 
-// ── URL param → live API value ────────────────────────────────────────────────
-//
-// URL (semantic)  →  nextHalted API claimType
-//   'hcfa'        →  'H'
-//   'ub'          →  'U'
-//   'all'         →  ''   (empty string = any claim type; API accepts this)
-//
-// Mapping is isolated here — ClaimsTable only deals with URL-friendly strings.
-
-const resolveApiClaimType = (urlParam: string): string => {
-  switch (urlParam.toLowerCase()) {
-    case 'hcfa':
-      return 'H';
-    case 'ub':
-      return 'U';
-    default:
-      return ''; // 'all' or any unrecognised value → no filter
-  }
-};
-
-// ── Queue context ─────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface QueueContext {
   claimType: string; // API value: 'H' | 'U' | ''
@@ -76,90 +41,38 @@ interface QueueContext {
   network: string;
 }
 
-// ── Adapter: NextHaltedClaimResponse → HaltedClaim ───────────────────────────
-
-function adaptNextHaltedToHaltedClaim(r: NextHaltedClaimResponse): HaltedClaim {
-  return {
-    claimNumber: r.claimNumber ?? '',
-    clientClaimId: r.clientClaimId ?? '',
-    claimStream: r.claimStream ?? '',
-    claimType: (r.claimType as 'HCFA' | 'UB') ?? 'HCFA',
-    dateOfReceipt: r.receiptDate ?? '',
-    serviceDate: r.dateOfService ?? '',
-    policy: r.policyNum ?? '',
-    insuredId: r.insuredId ?? '',
-    ccode: r.ccode ?? '',
-    group: r.grpName ?? '',
-    payer: r.payerName ?? '',
-    sender: r.sender ?? '',
-    network: r.network ?? '',
-    name:
-      r.insuredFullName ||
-      [r.insuredFirstName, r.insuredLastName].filter(Boolean).join(' '),
-    dateOfBirth: r.insuredDob || r.memberDob || '',
-    gender: r.insuredGender ?? '',
-    relationship: r.relationship ?? '',
-    address: [r.insuredAddress1, r.insuredCityStateZip]
-      .filter(Boolean)
-      .join(', '),
-    category: r.pendedClaim === 'Y' ? 'MANUAL_REVIEW_PENDED' : 'MANUAL_REVIEW',
-    status: 'HALTED',
-    lockedBy: null,
-    lockedAt: null,
-    pendedClaim: r.pendedClaim ?? 'N',
-    scenario: r.scenario ?? '',
-    matchType: r.matchType ?? 'HALT',
-  };
-}
-
-// ── TabPanel (always-mounted, CSS visibility) ─────────────────────────────────
+// ── AlwaysMountedPanel ────────────────────────────────────────────────────────
 
 interface AlwaysMountedPanelProps {
   children: React.ReactNode;
   visible: boolean;
 }
 
-const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => {
-  return (
-    <Box
-      sx={{
-        display: visible ? 'flex' : 'none',
-        height: '100%',
-        width: '100%',
-        flexDirection: 'column',
-        overflow: 'hidden',
-      }}
-    >
-      {children}
-    </Box>
-  );
-};
+const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => (
+  <Box
+    sx={{
+      display: visible ? 'flex' : 'none',
+      height: '100%',
+      width: '100%',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}
+  >
+    {children}
+  </Box>
+);
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ClientManualMatchDashboard() {
-  // Route: claim/:category/:claimType/next
-  // :claimType from ClaimsTable: 'hcfa' | 'ub' | 'all'
-  const { category, claimType: claimTypeParam } = useParams<{
-    claimId?: string;
-    category?: string;
-    claimType?: string; // matches route definition in main.tsx
-  }>();
-
   const location = useLocation();
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // ── State ──────────────────────────────────────────────────────────────────
-
-  // claim is always stored as HaltedClaim — both entry modes converge here.
   const [claim, setClaim] = useState<HaltedClaim | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [queueEmpty, setQueueEmpty] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
-
-  // CCode selected in a MFE panel. Reset on every new claim load.
   const [selectedCcode, setSelectedCcode] = useState('');
 
   const queueContextRef = useRef<QueueContext | null>(null);
@@ -174,13 +87,12 @@ export default function ClientManualMatchDashboard() {
     setSelectedCcode('');
     try {
       const response = await claimsApi.getNextHaltedClaim({
-        claimType: ctx.claimType, // 'H' | 'U' | ''
+        claimType: ctx.claimType,
         pended: ctx.pended,
         network: ctx.network,
-        lockedByUser: 'SYSTEM', // replace with auth user when available
+        lockedByUser: 'SYSTEM',
         lockExpiration: LOCK_EXPIRATION_MINUTES,
       });
-
       if (response) {
         setClaim(adaptNextHaltedToHaltedClaim(response));
         setActiveTab(0);
@@ -195,33 +107,27 @@ export default function ClientManualMatchDashboard() {
   }, []);
 
   // ── Initialisation ─────────────────────────────────────────────────────────
+  // Claim always arrives via router state — no URL param parsing needed.
+  // queueContext is optional: present → queue mode, absent → search mode.
 
   useEffect(() => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
-    // Mode 1 — search result: claim already in router state, no API call.
-    const stateClaim = (location.state as { claim?: HaltedClaim } | null)
-      ?.claim;
-    if (stateClaim) {
-      setClaim(stateClaim);
+    const state = location.state as {
+      claim?: HaltedClaim;
+      queueContext?: QueueContext;
+    } | null;
+
+    if (state?.claim) {
+      setClaim(state.claim);
+      if (state.queueContext) {
+        queueContextRef.current = state.queueContext;
+      }
       setLoading(false);
       return;
     }
 
-    // Mode 2 — queue: both route params must be present.
-    if (category && claimTypeParam) {
-      const ctx: QueueContext = {
-        claimType: resolveApiClaimType(claimTypeParam), // 'hcfa'→'H', 'ub'→'U', 'all'→''
-        pended: category === 'manual-pended',
-        network: searchParams.get('stream') ?? '',
-      };
-      queueContextRef.current = ctx;
-      void loadNextHaltedClaim(ctx);
-      return;
-    }
-
-    // Neither — invalid navigation.
     setError(
       'No claim data available. Please search for a claim or select one from the dashboard.'
     );
@@ -241,10 +147,8 @@ export default function ClientManualMatchDashboard() {
         | 'resetClaim'
     ) => {
       if (queueContextRef.current) {
-        // Queue mode — load next claim for every action type.
         void loadNextHaltedClaim(queueContextRef.current);
       } else {
-        // Search result mode — return to dashboard after action.
         void navigate('/manual-review');
       }
     },
@@ -315,21 +219,19 @@ export default function ClientManualMatchDashboard() {
         <Alert severity='error' sx={{ mb: 2 }}>
           {error ?? 'Claim not found.'}
         </Alert>
-        {/* <Button
+        <Button
           variant='outlined'
           onClick={() => void navigate('/manual-review')}
         >
           Return to Manual Review Dashboard
-        </Button> */}
+        </Button>
       </Box>
     );
   }
 
-  // ── Scenario config ───────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   const scenarioConfig = getScenarioConfig(claim.scenario ?? '');
-
-  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <Box
@@ -363,7 +265,6 @@ export default function ClientManualMatchDashboard() {
           overflow: 'hidden',
         }}
       >
-        {/* Tab bar */}
         <Box
           sx={{
             borderBottom: 1,
@@ -392,10 +293,6 @@ export default function ClientManualMatchDashboard() {
           </Tabs>
         </Box>
 
-        {/*
-          Both panels always mounted — CSS-only show/hide prevents MFEs
-          from unmounting and re-firing autoSearch on tab switch.
-        */}
         <Box
           sx={{
             flex: 1,
