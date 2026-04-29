@@ -20,7 +20,7 @@
 //   reflects the pending selection in real-time before the user hits the button.
 
 import { useState } from 'react';
-import { Alert, Box, Divider, Snackbar } from '@mui/material';
+import { Alert, Box, Snackbar } from '@mui/material';
 import Collapsible from './shared/Collapsible';
 import ClaimInfoGrid from './ClaimInfoGrid';
 import ClaimActionBar from './ClaimActionBar';

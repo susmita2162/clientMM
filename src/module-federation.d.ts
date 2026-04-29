@@ -1,12 +1,34 @@
-// Type declarations for Module Federation remote modules
-// UPDATED: Using actual types from remote applications
+// src/types/module-federation.d.ts
+// Type declarations for Module Federation remote modules.
+// MUST stay in sync with actual widget source files.
+//
+// Last verified against:
+//   memberSearchApp        — MemberSearch.tsx, MemberSearchWidget.tsx
+//   employerGroupSearchApp — EmployerGroupSearchForm.tsx, EmployerGroupSearchWidget.tsx
+//
+// ── NO top-level imports in this file ────────────────────────────────────────
+// A top-level import converts a .d.ts from an AMBIENT declaration file into a
+// MODULE file. declare module blocks in a module file are not applied globally —
+// TypeScript never resolves 'memberSearchApp/MemberSearchWidget', producing
+// ts(2307) in every consumer (vite.config has dts:false, so no auto-generated
+// types from the federation plugin either).
+//
+// MemberSearchField and EmployerGroupField are sourced from scenarioFieldConfig.ts
+// via inline import() types — no duplication, no top-level import.
+//
+// ── Registration ──────────────────────────────────────────────────────────────
+// Add to src/vite-env.d.ts so TypeScript always picks up this file:
+//   /// <reference path="./types/module-federation.d.ts" />
 
 declare module 'memberSearchApp/MemberSearchWidget' {
   import { ComponentType } from 'react';
 
-  // ============================================================================
-  // MEMBER SEARCH TYPES - Matching actual member.ts from Member Search app
-  // ============================================================================
+  // ── Re-export field type from scenarioFieldConfig (no duplication) ─────────
+  // Consumers can: import type { MemberSearchField } from 'memberSearchApp/MemberSearchWidget'
+  export type MemberSearchField =
+    import('../utils/scenarioFieldConfig').MemberSearchField;
+
+  // ── Data types ─────────────────────────────────────────────────────────────
 
   export type MemberSearchForm = {
     loadId?: string;
@@ -15,17 +37,19 @@ declare module 'memberSearchApp/MemberSearchWidget' {
     memberId?: string;
     lastName?: string;
     firstName?: string;
-    dob?: string; // YYYY-MM-DD
+    dob?: string;
     ssn?: string;
     gender?: string;
     relationshipCode?: string;
     state?: string;
     policy?: string;
-    effectiveDate?: string; // YYYY-MM-DD
-    postProcessDate?: string; // YYYY-MM-DD
+    effectiveDate?: string;
+    postProcessDate?: string;
     employerGroupName?: string;
     ccode?: string;
     network?: string;
+    insuredId?: string;
+    serviceDate?: string;
   };
 
   export type MemberRecord = {
@@ -46,6 +70,7 @@ declare module 'memberSearchApp/MemberSearchWidget' {
     effectiveDate?: string;
     postProcessDate?: string;
     employerGroupName?: string;
+    /** Optional — guard in MemberSearchPanel.extractCcode handles absent values. */
     ccode?: string;
     network?: string;
     middleName?: string;
@@ -65,37 +90,20 @@ declare module 'memberSearchApp/MemberSearchWidget' {
     updatedBy?: string;
   };
 
-  /**
-   * Props for MemberSearchWidget component
-   * IMPORTANT: Widget expects these specific field names
-   */
+  /** 'standalone': full field set + Advanced Search. 'embedded': reduced field set. */
+  export type MemberSearchMode = 'standalone' | 'embedded';
+
+  // ── Widget props — exact match to MemberSearchWidgetProps in widget source ─
   export interface MemberSearchWidgetProps {
-    /**
-     * Network
-     */
     network?: string;
-
-    /**
-     * Client Code (CCode)
-     */
     ccode?: string;
-
-    /**
-     * Callback when a member is selected
-     */
     onMemberSelected?: (member: MemberRecord) => void;
-
-    /**
-     * Auto-search on mount
-     */
     autoSearch?: boolean;
-
-    /**
-     * Render mode.
-     * 'standalone' (default) — full field set with Advanced Search toggle.
-     * 'embedded'             — reduced field set when hosted inside Claims Management.
-     */
-    mode?: 'standalone' | 'embedded';
+    mode?: MemberSearchMode;
+    /** Fields to pre-populate AND highlight yellow. Source: scenarioConfig.memberFocused */
+    focusedFields?: MemberSearchField[];
+    /** Fields to highlight yellow only. Source: scenarioConfig.memberHighlighted */
+    highlightedFields?: MemberSearchField[];
   }
 
   const MemberSearchWidget: ComponentType<MemberSearchWidgetProps>;
@@ -105,9 +113,11 @@ declare module 'memberSearchApp/MemberSearchWidget' {
 declare module 'employerGroupSearchApp/EmployerGroupSearchWidget' {
   import { ComponentType } from 'react';
 
-  // ============================================================================
-  // EMPLOYER GROUP TYPES - Matching actual employerGroup.ts
-  // ============================================================================
+  // ── Re-export field type from scenarioFieldConfig (no duplication) ─────────
+  export type EmployerGroupField =
+    import('../utils/scenarioFieldConfig').EmployerGroupField;
+
+  // ── Data types ─────────────────────────────────────────────────────────────
 
   export type EmployerGroupSearchForm = {
     ccode?: string;
@@ -129,6 +139,7 @@ declare module 'employerGroupSearchApp/EmployerGroupSearchWidget' {
     id: number;
     parentCode?: string;
     parentCodeDescription?: string;
+    /** Required — ClientRecord.ccode drives live Client Code display in the host. */
     ccode: string;
     clientName: string;
     matchRequired?: string;
@@ -163,35 +174,16 @@ declare module 'employerGroupSearchApp/EmployerGroupSearchWidget' {
     ppoId?: string;
   };
 
-  /**
-   * Props for EmployerGroupSearchWidget component
-   * IMPORTANT: Widget expects these specific field names
-   */
+  // ── Widget props — exact match to EmployerGroupSearchWidgetProps in widget source ─
   export interface EmployerGroupSearchWidgetProps {
-    /**
-     * Client Code (CCode) - PRIMARY search field
-     */
     ccode?: string;
-
-    /**
-     * Network
-     */
     network?: string;
-
-    /**
-     * Callback when an employer group is selected
-     */
-    onEmployerGroupSelected?: (group: EmployerGroupRecord) => void;
-
-    /**
-     * Callback when a client code is selected
-     */
-    onClientCodeSelected?: (ccode: ClientRecord) => void;
-
-    /**
-     * Auto-search on mount
-     */
+    onClientCodeSelected?: (record: ClientRecord) => void;
     autoSearch?: boolean;
+    /** Fields to pre-populate AND highlight yellow. Source: scenarioConfig.employerFocused */
+    focusedFields?: EmployerGroupField[];
+    /** Fields to highlight yellow only. Source: scenarioConfig.employerHighlighted */
+    highlightedFields?: EmployerGroupField[];
   }
 
   const EmployerGroupSearchWidget: ComponentType<EmployerGroupSearchWidgetProps>;

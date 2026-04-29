@@ -1,28 +1,32 @@
 // src/components/MemberSearchPanel.tsx
+//
+// Host panel wrapping the MemberSearchWidget MFE remote component.
+//
+// Widget contract (verified against MemberSearchWidget.tsx source):
+//   network, ccode, onMemberSelected, autoSearch, mode,
+//   focusedFields, highlightedFields
+//
+// focusedFields / highlightedFields:
+//   Produced by getScenarioConfig(claim.scenario) in ClientManualMatchDashboard
+//   and forwarded here → forwarded to the widget → forwarded to MemberSearch
+//   → applied as yellow background sx on each targeted form field.
+//
+// onMemberSelected wiring status:
+//   Widget now destructures onMemberSelected (bug fixed in MemberSearchWidget.tsx).
+//   Chain: MemberSearchWidget → CollapsibleMemberResults → MemberResults.
+//   MemberResults.tsx still needs onRowSelect wired to DataGrid row-click.
 
 import { Suspense, lazy } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
-import type { MemberSearchField } from '../utils/scenarioFieldConfig';
+import type {
+  MemberRecord,
+  MemberSearchMode,
+  MemberSearchWidgetProps,
+  MemberSearchField,
+} from 'memberSearchApp/MemberSearchWidget';
 
-// ── MFE widget contract ───────────────────────────────────────────────────────
-
-interface MemberSearchWidgetProps {
-  network: string;
-  ccode: string;
-  onMemberSelected: (member: unknown) => void;
-  autoSearch?: boolean;
-  mode?: string;
-  insuredId?: string;
-  serviceDate?: string;
-  firstName?: string;
-  lastName?: string;
-  dateOfBirth?: string;
-  gender?: string;
-  scenario?: string;
-  focusedFields?: MemberSearchField[];
-  highlightedFields?: MemberSearchField[];
-}
+// ── Lazy-load the remote widget ───────────────────────────────────────────────
 
 const MemberSearchWidget = lazy(
   () => import('memberSearchApp/MemberSearchWidget')
@@ -33,20 +37,21 @@ const MemberSearchWidget = lazy(
 export interface MemberSearchPanelProps {
   network: string;
   ccode: string;
-  insuredId?: string;
-  serviceDate?: string;
-  insuredFirstName?: string;
-  insuredLastName?: string;
-  insuredDob?: string;
-  insuredGender?: string;
-  scenario?: string;
-  focusedFields?: MemberSearchField[];
-  highlightedFields?: MemberSearchField[];
-  /** Called with ccode when the user selects a member in the MFE. */
+  /** Called with ccode when a member row is selected. */
   onCcodeSelected?: (ccode: string) => void;
+  /**
+   * Fields to pre-populate AND highlight yellow.
+   * Source: getScenarioConfig(scenario).memberFocused
+   */
+  focusedFields?: MemberSearchField[];
+  /**
+   * Fields to highlight yellow only (not pre-populated).
+   * Source: getScenarioConfig(scenario).memberHighlighted
+   */
+  highlightedFields?: MemberSearchField[];
 }
 
-// ── Fallback ──────────────────────────────────────────────────────────────────
+// ── Loading fallback ──────────────────────────────────────────────────────────
 
 function MemberSearchFallback() {
   return (
@@ -70,11 +75,13 @@ function MemberSearchFallback() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Extract ccode from the MFE member selection payload. */
-function extractCcode(member: unknown): string {
-  if (!member || typeof member !== 'object') return '';
-  const m = member as Record<string, unknown>;
-  return typeof m.ccode === 'string' ? m.ccode : '';
+/**
+ * Extract ccode from a MemberRecord.
+ * MemberRecord.ccode is optional — guard prevents a no-op state update
+ * when the field is absent on a record.
+ */
+function extractCcode(member: MemberRecord): string {
+  return typeof member.ccode === 'string' ? member.ccode : '';
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -82,18 +89,11 @@ function extractCcode(member: unknown): string {
 export default function MemberSearchPanel({
   network,
   ccode,
-  insuredId,
-  serviceDate,
-  insuredFirstName,
-  insuredLastName,
-  insuredDob,
-  insuredGender,
-  scenario,
+  onCcodeSelected,
   focusedFields,
   highlightedFields,
-  onCcodeSelected,
 }: MemberSearchPanelProps) {
-  const handleMemberSelected = (member: unknown) => {
+  const handleMemberSelected = (member: MemberRecord) => {
     if (!onCcodeSelected) return;
     const extracted = extractCcode(member);
     if (extracted) onCcodeSelected(extracted);
@@ -116,14 +116,7 @@ export default function MemberSearchPanel({
             ccode={ccode}
             onMemberSelected={handleMemberSelected}
             autoSearch={true}
-            mode='embedded'
-            insuredId={insuredId}
-            serviceDate={serviceDate}
-            firstName={insuredFirstName}
-            lastName={insuredLastName}
-            dateOfBirth={insuredDob}
-            gender={insuredGender}
-            scenario={scenario}
+            mode={'embedded' as MemberSearchMode}
             focusedFields={focusedFields}
             highlightedFields={highlightedFields}
           />

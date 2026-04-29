@@ -1,25 +1,37 @@
 // src/components/EmployerGroupSearchPanel.tsx
+//
+// Host panel wrapping the EmployerGroupSearchWidget MFE remote component.
+//
+// Widget contract (verified against EmployerGroupSearchWidget.tsx source):
+//   ccode, network, onClientCodeSelected, autoSearch,
+//   focusedFields, highlightedFields
+//
+// focusedFields / highlightedFields:
+//   Produced by getScenarioConfig(claim.scenario) in ClientManualMatchDashboard
+//   and forwarded here → forwarded to the widget → forwarded to
+//   EmployerGroupSearchForm → applied as yellow background sx on targeted fields.
+//
+// EG_FIELD_TO_FORM_KEY mapping (defined in EmployerGroupSearchForm.tsx):
+//   'network'             → 'network'
+//   'policyAlias'         → 'policyNumAlias'
+//   'groupNameAlias'      → 'groupNameAlias'
+//   'parentCodeDescAlias' → 'parentCodeDescription'
+//   'clientCode'          → 'ccode'
+//
+// Flash-and-revert fix (from prior session):
+//   extractCcode reads ClientRecord.ccode (required field).
+//   The widget fires onClientCodeSelected exactly once per row click.
 
 import { Suspense, lazy } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
-import type { EmployerGroupField } from '../utils/scenarioFieldConfig';
+import type {
+  ClientRecord,
+  EmployerGroupSearchWidgetProps,
+  EmployerGroupField,
+} from 'employerGroupSearchApp/EmployerGroupSearchWidget';
 
-// ── MFE widget contract ───────────────────────────────────────────────────────
-
-interface EmployerGroupSearchWidgetProps {
-  ccode: string;
-  network: string;
-  onEmployerGroupSelected: (group: unknown) => void;
-  onClientCodeSelected: (client: unknown) => void;
-  autoSearch?: boolean;
-  policyNum?: string;
-  grpName?: string;
-  payerName?: string;
-  scenario?: string;
-  focusedFields?: EmployerGroupField[];
-  highlightedFields?: EmployerGroupField[];
-}
+// ── Lazy-load the remote widget ───────────────────────────────────────────────
 
 const EmployerGroupSearchWidget = lazy(
   () => import('employerGroupSearchApp/EmployerGroupSearchWidget')
@@ -32,17 +44,21 @@ const EmployerGroupSearchWidget = lazy(
 export interface EmployerGroupSearchPanelProps {
   network: string;
   ccode: string;
-  policyNum?: string;
-  grpName?: string;
-  payerName?: string;
-  scenario?: string;
-  focusedFields?: EmployerGroupField[];
-  highlightedFields?: EmployerGroupField[];
-  /** Called with clientCode when the user selects an employer group in the MFE. */
+  /** Called with ccode when a client code row is selected. */
   onCcodeSelected?: (ccode: string) => void;
+  /**
+   * Fields to pre-populate AND highlight yellow.
+   * Source: getScenarioConfig(scenario).employerFocused
+   */
+  focusedFields?: EmployerGroupField[];
+  /**
+   * Fields to highlight yellow only (not pre-populated).
+   * Source: getScenarioConfig(scenario).employerHighlighted
+   */
+  highlightedFields?: EmployerGroupField[];
 }
 
-// ── Fallback ──────────────────────────────────────────────────────────────────
+// ── Loading fallback ──────────────────────────────────────────────────────────
 
 function EmployerGroupSearchFallback() {
   return (
@@ -66,11 +82,13 @@ function EmployerGroupSearchFallback() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Extract clientCode from the MFE employer group selection payload. */
-function extractClientCode(group: unknown): string {
-  if (!group || typeof group !== 'object') return '';
-  const g = group as Record<string, unknown>;
-  return typeof g.clientCode === 'string' ? g.clientCode : '';
+/**
+ * Extract ccode from a ClientRecord.
+ * ClientRecord.ccode is REQUIRED per module-federation.d.ts.
+ * Guard prevents a no-op state update on unexpected type mismatch.
+ */
+function extractCcode(client: ClientRecord): string {
+  return typeof client.ccode === 'string' ? client.ccode : '';
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -78,23 +96,13 @@ function extractClientCode(group: unknown): string {
 export default function EmployerGroupSearchPanel({
   network,
   ccode,
-  policyNum,
-  grpName,
-  payerName,
-  scenario,
+  onCcodeSelected,
   focusedFields,
   highlightedFields,
-  onCcodeSelected,
 }: EmployerGroupSearchPanelProps) {
-  const handleEmployerGroupSelected = (group: unknown) => {
+  const handleClientCodeSelected = (client: ClientRecord) => {
     if (!onCcodeSelected) return;
-    const extracted = extractClientCode(group);
-    if (extracted) onCcodeSelected(extracted);
-  };
-
-  const handleClientCodeSelected = (client: unknown) => {
-    if (!onCcodeSelected) return;
-    const extracted = extractClientCode(client);
+    const extracted = extractCcode(client);
     if (extracted) onCcodeSelected(extracted);
   };
 
@@ -113,13 +121,8 @@ export default function EmployerGroupSearchPanel({
           <EmployerGroupSearchWidget
             ccode={ccode}
             network={network}
-            onEmployerGroupSelected={handleEmployerGroupSelected}
             onClientCodeSelected={handleClientCodeSelected}
             autoSearch={true}
-            policyNum={policyNum}
-            grpName={grpName}
-            payerName={payerName}
-            scenario={scenario}
             focusedFields={focusedFields}
             highlightedFields={highlightedFields}
           />

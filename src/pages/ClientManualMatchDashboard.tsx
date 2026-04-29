@@ -6,9 +6,14 @@
 //     → Search result mode. After any action → return to /manual-review.
 //
 //   state = { claim: HaltedClaim, queueContext: QueueContext }
-//     → Queue mode (from Claims Counts table). After every action →
-//       nextHalted called again with queueContext → next claim loaded.
+//     → Queue mode. After every action → nextHalted → next claim.
 //       Queue empty → informational message shown.
+//
+// Scenario field config:
+//   getScenarioConfig(claim.scenario) produces memberFocused, memberHighlighted,
+//   employerFocused, employerHighlighted arrays. These are forwarded to the
+//   respective panels → widget → form → yellow TextField sx per scenario matrix.
+//   Returns null for unrecognised scenarios (panels receive undefined → no highlight).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -229,9 +234,13 @@ export default function ClientManualMatchDashboard() {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Scenario config ───────────────────────────────────────────────────────
+  // null when scenario is absent/unrecognised → panels receive undefined
+  // for focusedFields/highlightedFields → no highlighting applied.
 
   const scenarioConfig = getScenarioConfig(claim.scenario ?? '');
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <Box
@@ -245,6 +254,7 @@ export default function ClientManualMatchDashboard() {
         overflow: 'hidden',
       }}
     >
+      {/* Claim Information — live Client Code display */}
       <Box sx={{ flexShrink: 0 }}>
         <ClaimInformationPanel
           claim={claim}
@@ -253,6 +263,7 @@ export default function ClientManualMatchDashboard() {
         />
       </Box>
 
+      {/* MFE tabs */}
       <Box
         sx={{
           flex: 1,
@@ -301,34 +312,34 @@ export default function ClientManualMatchDashboard() {
             overflow: 'hidden',
           }}
         >
+          {/*
+           * MemberSearchPanel → MemberSearchWidget → MemberSearch
+           * focusedFields  = scenario.memberFocused  (pre-populate + yellow)
+           * highlightedFields = scenario.memberHighlighted (yellow only)
+           */}
           <AlwaysMountedPanel visible={activeTab === 0}>
             <MemberSearchPanel
               network={claim.network}
               ccode={claim.ccode}
-              insuredId={claim.insuredId}
-              serviceDate={claim.serviceDate}
-              insuredFirstName={claim.name.split(' ')[0]}
-              insuredLastName={claim.name.split(' ').slice(1).join(' ')}
-              insuredDob={claim.dateOfBirth}
-              insuredGender={claim.gender}
-              scenario={claim.scenario}
+              onCcodeSelected={setSelectedCcode}
               focusedFields={scenarioConfig?.memberFocused}
               highlightedFields={scenarioConfig?.memberHighlighted}
-              onCcodeSelected={setSelectedCcode}
             />
           </AlwaysMountedPanel>
 
+          {/*
+           * EmployerGroupSearchPanel → EmployerGroupSearchWidget → EmployerGroupSearchForm
+           * focusedFields  = scenario.employerFocused  (pre-populate + yellow)
+           * highlightedFields = scenario.employerHighlighted (yellow only)
+           * Field mapping applied in EmployerGroupSearchForm via EG_FIELD_TO_FORM_KEY.
+           */}
           <AlwaysMountedPanel visible={activeTab === 1}>
             <EmployerGroupSearchPanel
               network={claim.network}
               ccode={claim.ccode}
-              policyNum={claim.policy}
-              grpName={claim.group}
-              payerName={claim.payer}
-              scenario={claim.scenario}
+              onCcodeSelected={setSelectedCcode}
               focusedFields={scenarioConfig?.employerFocused}
               highlightedFields={scenarioConfig?.employerHighlighted}
-              onCcodeSelected={setSelectedCcode}
             />
           </AlwaysMountedPanel>
         </Box>
