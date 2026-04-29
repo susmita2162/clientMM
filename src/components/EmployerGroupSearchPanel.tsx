@@ -22,7 +22,7 @@
 //   extractCcode reads ClientRecord.ccode (required field).
 //   The widget fires onClientCodeSelected exactly once per row click.
 
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useCallback } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
 import type {
@@ -100,11 +100,20 @@ export default function EmployerGroupSearchPanel({
   focusedFields,
   highlightedFields,
 }: EmployerGroupSearchPanelProps) {
-  const handleClientCodeSelected = (client: ClientRecord) => {
-    if (!onCcodeSelected) return;
-    const extracted = extractCcode(client);
-    if (extracted) onCcodeSelected(extracted);
-  };
+  // useCallback is required here — not optional.
+  // Without it: every Dashboard re-render produces a new function reference →
+  // Widget's onClientCodeSelected dep changes → handleClientCodeSelect recreates
+  // → ClientCodesGrid useEffect re-runs (onRowSelect is in its deps) → re-fetch
+  // → auto-selects row 1 → reverts the user's selection (flash-and-revert bug).
+  // onCcodeSelected is setSelectedCcode (useState setter) — stable by guarantee.
+  const handleClientCodeSelected = useCallback(
+    (client: ClientRecord) => {
+      if (!onCcodeSelected) return;
+      const extracted = extractCcode(client);
+      if (extracted) onCcodeSelected(extracted);
+    },
+    [onCcodeSelected]
+  );
 
   return (
     <Box
