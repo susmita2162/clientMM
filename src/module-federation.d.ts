@@ -37,15 +37,15 @@ declare module 'memberSearchApp/MemberSearchWidget' {
     memberId?: string;
     lastName?: string;
     firstName?: string;
-    dob?: string;
+    dateOfBirth?: string; // matches member.ts (NOT dob)
     ssn?: string;
     gender?: string;
-    relationshipCode?: string;
+    relationship?: string; // matches member.ts (NOT relationshipCode)
     state?: string;
     policy?: string;
     effectiveDate?: string;
     postProcessDate?: string;
-    employerGroupName?: string;
+    groupName?: string; // matches member.ts (NOT employerGroupName)
     ccode?: string;
     network?: string;
     insuredId?: string;
@@ -57,19 +57,19 @@ declare module 'memberSearchApp/MemberSearchWidget' {
     memberId: string;
     firstName: string;
     lastName: string;
-    dob?: string;
+    dtOfBirth?: string; // matches member.ts (NOT dob)
     ssn?: string;
     ssnMasked?: string;
     senderId?: string;
     subscriberId?: string;
     loadId?: string;
     gender?: string;
-    relationshipCode?: string;
+    relationship?: string; // matches member.ts (NOT relationshipCode)
     state?: string;
     policy?: string;
     effectiveDate?: string;
     postProcessDate?: string;
-    employerGroupName?: string;
+    groupName?: string; // matches member.ts (NOT employerGroupName)
     /** Optional — guard in MemberSearchPanel.extractCcode handles absent values. */
     ccode?: string;
     network?: string;
@@ -100,10 +100,16 @@ declare module 'memberSearchApp/MemberSearchWidget' {
     onMemberSelected?: (member: MemberRecord) => void;
     autoSearch?: boolean;
     mode?: MemberSearchMode;
-    /** Fields to pre-populate AND highlight yellow. Source: scenarioConfig.memberFocused */
+    /** Fields to highlight yellow AND auto-search with. Source: scenarioConfig.memberFocused */
     focusedFields?: MemberSearchField[];
     /** Fields to highlight yellow only. Source: scenarioConfig.memberHighlighted */
     highlightedFields?: MemberSearchField[];
+    /**
+     * Pre-populated claim values for form seeding and auto-search.
+     * Built by Dashboard from HaltedClaim, memoised on [claim].
+     * Used for formDefaultValues and auto-search on mount.
+     */
+    initialCriteria?: Partial<MemberSearchForm>;
   }
 
   const MemberSearchWidget: ComponentType<MemberSearchWidgetProps>;
@@ -184,6 +190,16 @@ declare module 'employerGroupSearchApp/EmployerGroupSearchWidget' {
     focusedFields?: EmployerGroupField[];
     /** Fields to highlight yellow only. Source: scenarioConfig.employerHighlighted */
     highlightedFields?: EmployerGroupField[];
+    /**
+     * Pre-populated claim values for form seeding and auto-search.
+     * Built by Dashboard from HaltedClaim, memoised on [claim].
+     * Field mapping (HaltedClaim → EmployerGroupSearchForm):
+     *   claim.network → network
+     *   claim.ccode   → ccode
+     *   claim.policy  → policyNumAlias
+     *   claim.group   → groupNameAlias
+     */
+    initialCriteria?: Partial<EmployerGroupSearchForm>;
   }
 
   const EmployerGroupSearchWidget: ComponentType<EmployerGroupSearchWidgetProps>;

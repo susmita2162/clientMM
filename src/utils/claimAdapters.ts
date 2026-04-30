@@ -22,6 +22,8 @@ export function adaptNextHaltedToHaltedClaim(
     name:
       r.insuredFullName ||
       [r.insuredFirstName, r.insuredLastName].filter(Boolean).join(' '),
+    firstName: r.insuredFirstName ?? '',
+    lastName: r.insuredLastName ?? '',
     dateOfBirth: r.insuredDob || r.memberDob || '',
     gender: r.insuredGender ?? '',
     relationship: r.relationship ?? '',

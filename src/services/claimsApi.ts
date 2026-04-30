@@ -218,6 +218,8 @@ function adaptFindByClaimIdResponse(
     sender: '',
     network: live.lineOfBusiness ?? '',
     name,
+    firstName: insured.firstName ?? '',
+    lastName: insured.lastName ?? '',
     dateOfBirth: insured.dateOfBirth ?? '',
     gender: insured.gender ?? '',
     relationship: insured.relationToPatient ?? '',

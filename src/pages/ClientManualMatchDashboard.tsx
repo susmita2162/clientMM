@@ -15,7 +15,7 @@
 //   respective panels → widget → form → yellow TextField sx per scenario matrix.
 //   Returns null for unrecognised scenarios (panels receive undefined → no highlight).
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
@@ -77,7 +77,17 @@ export default function ClientManualMatchDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [queueEmpty, setQueueEmpty] = useState(false);
-  const [activeTab, setActiveTab] = useState(0);
+  // Derive the initial active tab from the scenario on first render.
+  // location is available (declared above) — the initializer runs once
+  // synchronously, so no flash occurs.
+  //   scenarioConfig.employerFocused has fields → Employer Group Search tab (1)
+  //   otherwise                                  → Member Search tab (0)
+  const [activeTab, setActiveTab] = useState(() => {
+    const state = location.state as { claim?: HaltedClaim } | null;
+    const scenario = state?.claim?.scenario ?? '';
+    const cfg = getScenarioConfig(scenario);
+    return cfg && cfg.employerFocused.length > 0 ? 1 : 0;
+  });
   const [selectedCcode, setSelectedCcode] = useState('');
 
   const queueContextRef = useRef<QueueContext | null>(null);
@@ -99,8 +109,10 @@ export default function ClientManualMatchDashboard() {
         lockExpiration: LOCK_EXPIRATION_MINUTES,
       });
       if (response) {
-        setClaim(adaptNextHaltedToHaltedClaim(response));
-        setActiveTab(0);
+        const nextClaim = adaptNextHaltedToHaltedClaim(response);
+        setClaim(nextClaim);
+        const nextCfg = getScenarioConfig(nextClaim.scenario ?? '');
+        setActiveTab(nextCfg && nextCfg.employerFocused.length > 0 ? 1 : 0);
       } else {
         setQueueEmpty(true);
       }
@@ -159,6 +171,39 @@ export default function ClientManualMatchDashboard() {
     },
     [loadNextHaltedClaim, navigate]
   );
+
+  // ── Scenario config + MFE criteria ───────────────────────────────────────
+  // All hooks and derived values MUST be declared before any early returns
+  // (React rules-of-hooks). claim may be null here — both useMemos handle
+  // that safely by returning objects of undefined values.
+  //
+  // Member Search field mapping (HaltedClaim → MemberSearchForm)
+  const memberInitialCriteria = useMemo(
+    () => ({
+      network: claim?.network || undefined,
+      insuredId: claim?.insuredId || undefined,
+      serviceDate: claim?.serviceDate || undefined,
+      dateOfBirth: claim?.dateOfBirth || undefined,
+      gender: claim?.gender || undefined,
+      firstName: claim?.firstName || undefined,
+      lastName: claim?.lastName || undefined,
+    }),
+    [claim]
+  );
+
+  // Employer Group Search field mapping (HaltedClaim → EmployerGroupSearchForm)
+  const egInitialCriteria = useMemo(
+    () => ({
+      network: claim?.network || undefined,
+      ccode: claim?.ccode || undefined,
+      policyNumAlias: claim?.policy || undefined,
+      groupNameAlias: claim?.group || undefined,
+      parentCodeDescription: claim?.payer || undefined,
+    }),
+    [claim]
+  );
+
+  const scenarioConfig = claim ? getScenarioConfig(claim.scenario ?? '') : null;
 
   // ── Loading ───────────────────────────────────────────────────────────────
 
@@ -234,12 +279,6 @@ export default function ClientManualMatchDashboard() {
     );
   }
 
-  // ── Scenario config ───────────────────────────────────────────────────────
-  // null when scenario is absent/unrecognised → panels receive undefined
-  // for focusedFields/highlightedFields → no highlighting applied.
-
-  const scenarioConfig = getScenarioConfig(claim.scenario ?? '');
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -299,8 +338,20 @@ export default function ClientManualMatchDashboard() {
               },
             }}
           >
-            <Tab label='Member Search' />
-            <Tab label='Employer Group Search' />
+            <Tab
+              label={
+                scenarioConfig?.memberFocused.length
+                  ? `Member Search - ${claim.scenario ?? ''}`
+                  : 'Member Search'
+              }
+            />
+            <Tab
+              label={
+                scenarioConfig?.employerFocused.length
+                  ? `Employer Group Search - ${claim.scenario ?? ''}`
+                  : 'Employer Group Search'
+              }
+            />
           </Tabs>
         </Box>
 
@@ -324,6 +375,7 @@ export default function ClientManualMatchDashboard() {
               onCcodeSelected={setSelectedCcode}
               focusedFields={scenarioConfig?.memberFocused}
               highlightedFields={scenarioConfig?.memberHighlighted}
+              initialCriteria={memberInitialCriteria}
             />
           </AlwaysMountedPanel>
 
@@ -340,6 +392,7 @@ export default function ClientManualMatchDashboard() {
               onCcodeSelected={setSelectedCcode}
               focusedFields={scenarioConfig?.employerFocused}
               highlightedFields={scenarioConfig?.employerHighlighted}
+              initialCriteria={egInitialCriteria}
             />
           </AlwaysMountedPanel>
         </Box>

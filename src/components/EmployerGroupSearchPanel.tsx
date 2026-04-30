@@ -29,6 +29,7 @@ import type {
   ClientRecord,
   EmployerGroupSearchWidgetProps,
   EmployerGroupField,
+  EmployerGroupSearchForm,
 } from 'employerGroupSearchApp/EmployerGroupSearchWidget';
 
 // ── Lazy-load the remote widget ───────────────────────────────────────────────
@@ -44,18 +45,11 @@ const EmployerGroupSearchWidget = lazy(
 export interface EmployerGroupSearchPanelProps {
   network: string;
   ccode: string;
-  /** Called with ccode when a client code row is selected. */
   onCcodeSelected?: (ccode: string) => void;
-  /**
-   * Fields to pre-populate AND highlight yellow.
-   * Source: getScenarioConfig(scenario).employerFocused
-   */
   focusedFields?: EmployerGroupField[];
-  /**
-   * Fields to highlight yellow only (not pre-populated).
-   * Source: getScenarioConfig(scenario).employerHighlighted
-   */
   highlightedFields?: EmployerGroupField[];
+  /** Pre-populated claim values — forwarded to EmployerGroupSearchWidget. */
+  initialCriteria?: Partial<EmployerGroupSearchForm>;
 }
 
 // ── Loading fallback ──────────────────────────────────────────────────────────
@@ -99,6 +93,7 @@ export default function EmployerGroupSearchPanel({
   onCcodeSelected,
   focusedFields,
   highlightedFields,
+  initialCriteria,
 }: EmployerGroupSearchPanelProps) {
   // useCallback is required here — not optional.
   // Without it: every Dashboard re-render produces a new function reference →
@@ -134,6 +129,7 @@ export default function EmployerGroupSearchPanel({
             autoSearch={true}
             focusedFields={focusedFields}
             highlightedFields={highlightedFields}
+            initialCriteria={initialCriteria}
           />
         </Suspense>
       </MfeErrorBoundary>

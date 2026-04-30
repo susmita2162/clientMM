@@ -24,6 +24,7 @@ import type {
   MemberSearchMode,
   MemberSearchWidgetProps,
   MemberSearchField,
+  MemberSearchForm,
 } from 'memberSearchApp/MemberSearchWidget';
 
 // ── Lazy-load the remote widget ───────────────────────────────────────────────
@@ -37,18 +38,11 @@ const MemberSearchWidget = lazy(
 export interface MemberSearchPanelProps {
   network: string;
   ccode: string;
-  /** Called with ccode when a member row is selected. */
   onCcodeSelected?: (ccode: string) => void;
-  /**
-   * Fields to pre-populate AND highlight yellow.
-   * Source: getScenarioConfig(scenario).memberFocused
-   */
   focusedFields?: MemberSearchField[];
-  /**
-   * Fields to highlight yellow only (not pre-populated).
-   * Source: getScenarioConfig(scenario).memberHighlighted
-   */
   highlightedFields?: MemberSearchField[];
+  /** Pre-populated claim values — forwarded to MemberSearchWidget. */
+  initialCriteria?: Partial<MemberSearchForm>;
 }
 
 // ── Loading fallback ──────────────────────────────────────────────────────────
@@ -92,6 +86,7 @@ export default function MemberSearchPanel({
   onCcodeSelected,
   focusedFields,
   highlightedFields,
+  initialCriteria,
 }: MemberSearchPanelProps) {
   const handleMemberSelected = (member: MemberRecord) => {
     if (!onCcodeSelected) return;
@@ -119,6 +114,7 @@ export default function MemberSearchPanel({
             mode={'embedded' as MemberSearchMode}
             focusedFields={focusedFields}
             highlightedFields={highlightedFields}
+            initialCriteria={initialCriteria}
           />
         </Suspense>
       </MfeErrorBoundary>

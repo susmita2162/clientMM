@@ -187,6 +187,8 @@ export interface HaltedClaim {
   sender: string;
   network: string;
   name: string;
+  firstName: string;
+  lastName: string;
   dateOfBirth: string;
   gender: string;
   relationship: string;
