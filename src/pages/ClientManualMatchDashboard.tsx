@@ -10,9 +10,8 @@
 //       Queue empty → informational message shown.
 //
 // Scenario field config:
-//   getScenarioConfig(claim.scenario) produces memberFocused, memberHighlighted,
-//   employerFocused, employerHighlighted arrays. These are forwarded to the
-//   respective panels → widget → form → yellow TextField sx per scenario matrix.
+//   getScenarioConfig(claim.scenario) → focusedMfe, memberFields, employerFields.
+//   Forwarded to panels → widget → form → yellow TextField sx per scenario matrix.
 //   Returns null for unrecognised scenarios (panels receive undefined → no highlight).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -33,6 +32,8 @@ import { claimsApi } from '../services/claimsApi';
 import { getScenarioConfig } from '../utils/scenarioFieldConfig';
 import { adaptNextHaltedToHaltedClaim } from '../utils/claimAdapters';
 import type { HaltedClaim } from '../types/claims';
+import type { MemberSearchForm } from 'memberSearchApp/MemberSearchWidget';
+import type { EmployerGroupSearchForm } from 'employerGroupSearchApp/EmployerGroupSearchWidget';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ const LOCK_EXPIRATION_MINUTES = 15;
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface QueueContext {
-  claimType: string; // API value: 'H' | 'U' | ''
+  claimType: string;
   pended: boolean;
   network: string;
 }
@@ -80,13 +81,13 @@ export default function ClientManualMatchDashboard() {
   // Derive the initial active tab from the scenario on first render.
   // location is available (declared above) — the initializer runs once
   // synchronously, so no flash occurs.
-  //   scenarioConfig.employerFocused has fields → Employer Group Search tab (1)
+  //   scenarioConfig.focusedMfe === 'employerGroup' → Employer Group Search tab (1)
   //   otherwise                                  → Member Search tab (0)
   const [activeTab, setActiveTab] = useState(() => {
     const state = location.state as { claim?: HaltedClaim } | null;
     const scenario = state?.claim?.scenario ?? '';
     const cfg = getScenarioConfig(scenario);
-    return cfg && cfg.employerFocused.length > 0 ? 1 : 0;
+    return cfg && cfg.focusedMfe === 'employerGroup' ? 1 : 0;
   });
   const [selectedCcode, setSelectedCcode] = useState('');
 
@@ -112,7 +113,7 @@ export default function ClientManualMatchDashboard() {
         const nextClaim = adaptNextHaltedToHaltedClaim(response);
         setClaim(nextClaim);
         const nextCfg = getScenarioConfig(nextClaim.scenario ?? '');
-        setActiveTab(nextCfg && nextCfg.employerFocused.length > 0 ? 1 : 0);
+        setActiveTab(nextCfg && nextCfg.focusedMfe === 'employerGroup' ? 1 : 0);
       } else {
         setQueueEmpty(true);
       }
@@ -124,8 +125,6 @@ export default function ClientManualMatchDashboard() {
   }, []);
 
   // ── Initialisation ─────────────────────────────────────────────────────────
-  // Claim always arrives via router state — no URL param parsing needed.
-  // queueContext is optional: present → queue mode, absent → search mode.
 
   useEffect(() => {
     if (hasInitialized.current) return;
@@ -173,37 +172,67 @@ export default function ClientManualMatchDashboard() {
   );
 
   // ── Scenario config + MFE criteria ───────────────────────────────────────
-  // All hooks and derived values MUST be declared before any early returns
-  // (React rules-of-hooks). claim may be null here — both useMemos handle
-  // that safely by returning objects of undefined values.
-  //
-  // Member Search field mapping (HaltedClaim → MemberSearchForm)
-  const memberInitialCriteria = useMemo(
-    () => ({
-      network: claim?.network || undefined,
-      insuredId: claim?.insuredId || undefined,
-      serviceDate: claim?.serviceDate || undefined,
-      dateOfBirth: claim?.dateOfBirth || undefined,
-      gender: claim?.gender || undefined,
-      firstName: claim?.firstName || undefined,
-      lastName: claim?.lastName || undefined,
-    }),
-    [claim]
-  );
-
-  // Employer Group Search field mapping (HaltedClaim → EmployerGroupSearchForm)
-  const egInitialCriteria = useMemo(
-    () => ({
-      network: claim?.network || undefined,
-      ccode: claim?.ccode || undefined,
-      policyNumAlias: claim?.policy || undefined,
-      groupNameAlias: claim?.group || undefined,
-      parentCodeDescription: claim?.payer || undefined,
-    }),
-    [claim]
-  );
+  // All hooks MUST be declared before any early returns (Rules of Hooks).
+  // claim may be null here — optional chaining handles it safely.
 
   const scenarioConfig = claim ? getScenarioConfig(claim.scenario ?? '') : null;
+
+  // All available claim values keyed by MemberSearchField (1-to-1 mapping)
+  const memberAllValues: Record<string, string | undefined> = {
+    network: claim?.network || undefined,
+    insuredId: claim?.insuredId || undefined,
+    serviceDate: claim?.serviceDate || undefined,
+    dateOfBirth: claim?.dateOfBirth || undefined,
+    gender: claim?.gender || undefined,
+    firstName: claim?.firstName || undefined,
+    lastName: claim?.lastName || undefined,
+  };
+
+  // EmployerGroupField → EmployerGroupSearchForm key translation
+  const EG_FIELD_TO_FORM_KEY: Record<string, string> = {
+    network: 'network',
+    policyAlias: 'policyNumAlias',
+    groupNameAlias: 'groupNameAlias',
+    parentCodeDescAlias: 'parentCodeDescription',
+    clientCode: 'ccode',
+  };
+
+  const egAllValues: Record<string, string | undefined> = {
+    network: claim?.network || undefined,
+    ccode: claim?.ccode || undefined,
+    policyNumAlias: claim?.policy || undefined,
+    groupNameAlias: claim?.group || undefined,
+    parentCodeDescription: claim?.payer || undefined,
+  };
+
+  // Build initialCriteria from scenarioConfig.memberFields / employerFields only.
+  // Auto-search runs with exactly the scenario-defined fields and their claim values.
+  const memberInitialCriteria = useMemo(():
+    | Partial<MemberSearchForm>
+    | undefined => {
+    const fields = scenarioConfig?.memberFields ?? [];
+    if (!fields.length) return undefined;
+    const entries = fields
+      .map((f): [string, string | undefined] => [f, memberAllValues[f]])
+      .filter((entry): entry is [string, string] => entry[1] !== undefined);
+    return Object.fromEntries(entries) as Partial<MemberSearchForm>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claim, scenarioConfig]);
+
+  const egInitialCriteria = useMemo(():
+    | Partial<EmployerGroupSearchForm>
+    | undefined => {
+    const fields = scenarioConfig?.employerFields ?? [];
+    if (!fields.length) return undefined;
+    const entries = fields
+      .map((f): [string, string | undefined] => [
+        EG_FIELD_TO_FORM_KEY[f],
+        egAllValues[EG_FIELD_TO_FORM_KEY[f]],
+      ])
+      .filter((entry): entry is [string, string] => entry[1] !== undefined);
+    return Object.fromEntries(entries) as Partial<EmployerGroupSearchForm>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claim, scenarioConfig]);
 
   // ── Loading ───────────────────────────────────────────────────────────────
 
@@ -340,14 +369,14 @@ export default function ClientManualMatchDashboard() {
           >
             <Tab
               label={
-                scenarioConfig?.memberFocused.length
+                scenarioConfig?.focusedMfe === 'member'
                   ? `Member Search - ${claim.scenario ?? ''}`
                   : 'Member Search'
               }
             />
             <Tab
               label={
-                scenarioConfig?.employerFocused.length
+                scenarioConfig?.focusedMfe === 'employerGroup'
                   ? `Employer Group Search - ${claim.scenario ?? ''}`
                   : 'Employer Group Search'
               }
@@ -363,35 +392,18 @@ export default function ClientManualMatchDashboard() {
             overflow: 'hidden',
           }}
         >
-          {/*
-           * MemberSearchPanel → MemberSearchWidget → MemberSearch
-           * focusedFields  = scenario.memberFocused  (pre-populate + yellow)
-           * highlightedFields = scenario.memberHighlighted (yellow only)
-           */}
           <AlwaysMountedPanel visible={activeTab === 0}>
             <MemberSearchPanel
-              network={claim.network}
-              ccode={claim.ccode}
               onCcodeSelected={setSelectedCcode}
-              focusedFields={scenarioConfig?.memberFocused}
-              highlightedFields={scenarioConfig?.memberHighlighted}
+              fields={scenarioConfig?.memberFields}
               initialCriteria={memberInitialCriteria}
             />
           </AlwaysMountedPanel>
 
-          {/*
-           * EmployerGroupSearchPanel → EmployerGroupSearchWidget → EmployerGroupSearchForm
-           * focusedFields  = scenario.employerFocused  (pre-populate + yellow)
-           * highlightedFields = scenario.employerHighlighted (yellow only)
-           * Field mapping applied in EmployerGroupSearchForm via EG_FIELD_TO_FORM_KEY.
-           */}
           <AlwaysMountedPanel visible={activeTab === 1}>
             <EmployerGroupSearchPanel
-              network={claim.network}
-              ccode={claim.ccode}
               onCcodeSelected={setSelectedCcode}
-              focusedFields={scenarioConfig?.employerFocused}
-              highlightedFields={scenarioConfig?.employerHighlighted}
+              fields={scenarioConfig?.employerFields}
               initialCriteria={egInitialCriteria}
             />
           </AlwaysMountedPanel>

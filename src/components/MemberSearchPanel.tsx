@@ -4,12 +4,9 @@
 //
 // Widget contract (verified against MemberSearchWidget.tsx source):
 //   network, ccode, onMemberSelected, autoSearch, mode,
-//   focusedFields, highlightedFields
-//
-// focusedFields / highlightedFields:
-//   Produced by getScenarioConfig(claim.scenario) in ClientManualMatchDashboard
-//   and forwarded here → forwarded to the widget → forwarded to MemberSearch
-//   → applied as yellow background sx on each targeted form field.
+// fields:
+//   scenarioConfig.memberFields from Dashboard → widget → MemberSearch
+//   → yellow background sx on each targeted form field.
 //
 // onMemberSelected wiring status:
 //   Widget now destructures onMemberSelected (bug fixed in MemberSearchWidget.tsx).
@@ -36,11 +33,9 @@ const MemberSearchWidget = lazy(
 // ── Public panel props ────────────────────────────────────────────────────────
 
 export interface MemberSearchPanelProps {
-  network: string;
-  ccode: string;
   onCcodeSelected?: (ccode: string) => void;
-  focusedFields?: MemberSearchField[];
-  highlightedFields?: MemberSearchField[];
+  /** Fields to highlight yellow. Source: scenarioConfig.memberFields */
+  fields?: MemberSearchField[];
   /** Pre-populated claim values — forwarded to MemberSearchWidget. */
   initialCriteria?: Partial<MemberSearchForm>;
 }
@@ -81,11 +76,8 @@ function extractCcode(member: MemberRecord): string {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function MemberSearchPanel({
-  network,
-  ccode,
   onCcodeSelected,
-  focusedFields,
-  highlightedFields,
+  fields,
   initialCriteria,
 }: MemberSearchPanelProps) {
   const handleMemberSelected = (member: MemberRecord) => {
@@ -107,13 +99,10 @@ export default function MemberSearchPanel({
       <MfeErrorBoundary mfeName='Member Search'>
         <Suspense fallback={<MemberSearchFallback />}>
           <MemberSearchWidget
-            network={network}
-            ccode={ccode}
             onMemberSelected={handleMemberSelected}
             autoSearch={true}
             mode={'embedded' as MemberSearchMode}
-            focusedFields={focusedFields}
-            highlightedFields={highlightedFields}
+            fields={fields}
             initialCriteria={initialCriteria}
           />
         </Suspense>

@@ -95,20 +95,12 @@ declare module 'memberSearchApp/MemberSearchWidget' {
 
   // ── Widget props — exact match to MemberSearchWidgetProps in widget source ─
   export interface MemberSearchWidgetProps {
-    network?: string;
-    ccode?: string;
     onMemberSelected?: (member: MemberRecord) => void;
     autoSearch?: boolean;
     mode?: MemberSearchMode;
-    /** Fields to highlight yellow AND auto-search with. Source: scenarioConfig.memberFocused */
-    focusedFields?: MemberSearchField[];
-    /** Fields to highlight yellow only. Source: scenarioConfig.memberHighlighted */
-    highlightedFields?: MemberSearchField[];
-    /**
-     * Pre-populated claim values for form seeding and auto-search.
-     * Built by Dashboard from HaltedClaim, memoised on [claim].
-     * Used for formDefaultValues and auto-search on mount.
-     */
+    /** Fields to highlight yellow. Source: scenarioConfig.memberFields */
+    fields?: MemberSearchField[];
+    /** Pre-populated claim values for form seeding and auto-search. */
     initialCriteria?: Partial<MemberSearchForm>;
   }
 
@@ -182,23 +174,11 @@ declare module 'employerGroupSearchApp/EmployerGroupSearchWidget' {
 
   // ── Widget props — exact match to EmployerGroupSearchWidgetProps in widget source ─
   export interface EmployerGroupSearchWidgetProps {
-    ccode?: string;
-    network?: string;
     onClientCodeSelected?: (record: ClientRecord) => void;
     autoSearch?: boolean;
-    /** Fields to pre-populate AND highlight yellow. Source: scenarioConfig.employerFocused */
-    focusedFields?: EmployerGroupField[];
-    /** Fields to highlight yellow only. Source: scenarioConfig.employerHighlighted */
-    highlightedFields?: EmployerGroupField[];
-    /**
-     * Pre-populated claim values for form seeding and auto-search.
-     * Built by Dashboard from HaltedClaim, memoised on [claim].
-     * Field mapping (HaltedClaim → EmployerGroupSearchForm):
-     *   claim.network → network
-     *   claim.ccode   → ccode
-     *   claim.policy  → policyNumAlias
-     *   claim.group   → groupNameAlias
-     */
+    /** Fields to highlight yellow. Source: scenarioConfig.employerFields */
+    fields?: EmployerGroupField[];
+    /** Pre-populated claim values for form seeding and auto-search. */
     initialCriteria?: Partial<EmployerGroupSearchForm>;
   }
 

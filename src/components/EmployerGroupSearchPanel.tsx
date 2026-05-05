@@ -4,12 +4,9 @@
 //
 // Widget contract (verified against EmployerGroupSearchWidget.tsx source):
 //   ccode, network, onClientCodeSelected, autoSearch,
-//   focusedFields, highlightedFields
-//
-// focusedFields / highlightedFields:
-//   Produced by getScenarioConfig(claim.scenario) in ClientManualMatchDashboard
-//   and forwarded here → forwarded to the widget → forwarded to
-//   EmployerGroupSearchForm → applied as yellow background sx on targeted fields.
+// fields:
+//   scenarioConfig.employerFields from Dashboard → widget → EmployerGroupSearchForm
+//   → yellow background sx on each targeted form field.
 //
 // EG_FIELD_TO_FORM_KEY mapping (defined in EmployerGroupSearchForm.tsx):
 //   'network'             → 'network'
@@ -43,11 +40,9 @@ const EmployerGroupSearchWidget = lazy(
 // ── Public panel props ────────────────────────────────────────────────────────
 
 export interface EmployerGroupSearchPanelProps {
-  network: string;
-  ccode: string;
   onCcodeSelected?: (ccode: string) => void;
-  focusedFields?: EmployerGroupField[];
-  highlightedFields?: EmployerGroupField[];
+  /** Fields to highlight yellow. Source: scenarioConfig.employerFields */
+  fields?: EmployerGroupField[];
   /** Pre-populated claim values — forwarded to EmployerGroupSearchWidget. */
   initialCriteria?: Partial<EmployerGroupSearchForm>;
 }
@@ -88,11 +83,8 @@ function extractCcode(client: ClientRecord): string {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function EmployerGroupSearchPanel({
-  network,
-  ccode,
   onCcodeSelected,
-  focusedFields,
-  highlightedFields,
+  fields,
   initialCriteria,
 }: EmployerGroupSearchPanelProps) {
   // useCallback is required here — not optional.
@@ -123,12 +115,9 @@ export default function EmployerGroupSearchPanel({
       <MfeErrorBoundary mfeName='Employer Group Search'>
         <Suspense fallback={<EmployerGroupSearchFallback />}>
           <EmployerGroupSearchWidget
-            ccode={ccode}
-            network={network}
             onClientCodeSelected={handleClientCodeSelected}
             autoSearch={true}
-            focusedFields={focusedFields}
-            highlightedFields={highlightedFields}
+            fields={fields}
             initialCriteria={initialCriteria}
           />
         </Suspense>
