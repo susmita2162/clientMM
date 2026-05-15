@@ -1,23 +1,22 @@
 // src/pages/ClientManualMatchDashboard.tsx
 //
-// CHANGES (this iteration):
+// CHANGE (this iteration):
 //
-//   Fix — serviceDate → effectiveDate in Member Search auto-search:
-//     MemberSearchForm.serviceDate is display-only in embedded mode and is
-//     NOT sent to the Member Search API. MemberSearchForm.effectiveDate IS
-//     sent. In memberInitialCriteria, after building from scenario fields,
-//     if serviceDate is present inject effectiveDate with the same value so
-//     the auto-search fires with the correct date filter.
+//   Fix — serviceDate field not populating in Member Search MFE:
+//     nextHalted returns dateOfService in MM-DD-YYYY ("06-02-2021").
+//     HTML <input type="date"> requires YYYY-MM-DD — field rendered empty.
 //
-//   Fix — ccode from MemberRecord (remove redundant onCcodeSelected):
-//     handleMemberSelected now also calls setSelectedCcode(member.ccode ?? '').
-//     MemberSearchPanel no longer has onCcodeSelected — it was a subset of
-//     what onMemberSelected already provides. MemberSearchPanel JSX updated
-//     accordingly (onCcodeSelected prop removed).
-//     EmployerGroupSearchPanel keeps onCcodeSelected={setSelectedCcode} —
-//     that panel does not expose a full record equivalent.
+//     toIsoDate() converts MM-DD-YYYY → YYYY-MM-DD before putting the value
+//     into memberInitialCriteria. Non-matching formats are passed through
+//     unchanged (safe for both nextHalted and findByClaimId paths).
 //
-// All other logic is unchanged from the previous iteration.
+//     In the memo:
+//       criteria.serviceDate = isoDate   → form field displays correctly
+//       criteria.effectiveDate = isoDate → buildSearchCriteria converts
+//                                          YYYY-MM-DD → MM-DD-YYYY for API
+//                                          (intentional, not accidental)
+//
+// All other logic is unchanged.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -53,6 +52,18 @@ interface QueueContext {
   claimType: string;
   pended: boolean;
   network: string;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Converts MM-DD-YYYY → YYYY-MM-DD for HTML <input type="date"> display.
+ * Returns the input unchanged if it does not match MM-DD-YYYY (safe for
+ * dates already in YYYY-MM-DD or any other format).
+ */
+function toIsoDate(value: string): string {
+  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value);
+  return m ? `${m[3]}-${m[1]}-${m[2]}` : value;
 }
 
 // ── AlwaysMountedPanel ────────────────────────────────────────────────────────
@@ -95,11 +106,8 @@ export default function ClientManualMatchDashboard() {
   });
 
   // ── MFE selection state ───────────────────────────────────────────────────
-  /** ccode from MemberRecord.ccode (Member Search) or EmployerGroupSearchPanel. */
   const [selectedCcode, setSelectedCcode] = useState('');
-  /** MemberRecord.id → Number → UpdateCcodeRequest.eligMemberId */
   const [selectedEligMemberId, setSelectedEligMemberId] = useState<number>(0);
-  /** MemberRecord.effectiveDate → UpdateCcodeRequest.serviceDate */
   const [selectedMemberServiceDate, setSelectedMemberServiceDate] =
     useState<string>('');
 
@@ -197,10 +205,6 @@ export default function ClientManualMatchDashboard() {
   );
 
   // ── Member selection handler ───────────────────────────────────────────────
-  // Single callback for all member-derived state:
-  //   ccode        ← member.ccode        (selectedCcode for ClaimInfoGrid live display + updateCcode payload)
-  //   eligMemberId ← Number(member.id)   (UpdateCcodeRequest.eligMemberId)
-  //   serviceDate  ← member.effectiveDate (UpdateCcodeRequest.serviceDate)
 
   const handleMemberSelected = useCallback((member: MemberRecord) => {
     setSelectedCcode(member.ccode ?? '');
@@ -248,13 +252,14 @@ export default function ClientManualMatchDashboard() {
       .filter((entry): entry is [string, string] => entry[1] !== undefined);
     const criteria = Object.fromEntries(entries) as Partial<MemberSearchForm>;
 
-    // MemberSearchForm.serviceDate is display-only in embedded mode —
-    // it is NOT forwarded to the Member Search API by the MFE.
-    // MemberSearchForm.effectiveDate IS sent to the API.
-    // Inject effectiveDate from serviceDate so the auto-search fires with
-    // the correct date filter (dateOfService from the halted claim).
+    // serviceDate from nextHalted is MM-DD-YYYY; <input type="date"> requires
+    // YYYY-MM-DD. Convert so the field populates and so buildSearchCriteria
+    // in memberService.ts intentionally converts YYYY-MM-DD → MM-DD-YYYY for
+    // the API (rather than relying on the regex not matching).
     if (criteria.serviceDate) {
-      criteria.effectiveDate = criteria.serviceDate;
+      const isoDate = toIsoDate(criteria.serviceDate);
+      criteria.serviceDate = isoDate;
+      criteria.effectiveDate = isoDate;
     }
 
     return criteria;
@@ -375,7 +380,6 @@ export default function ClientManualMatchDashboard() {
         />
       </Box>
 
-      {/* MFE tabs */}
       <Box
         sx={{
           flex: 1,
@@ -436,7 +440,6 @@ export default function ClientManualMatchDashboard() {
             overflow: 'hidden',
           }}
         >
-          {/* onMemberSelected — single callback for ccode, eligMemberId, serviceDate */}
           <AlwaysMountedPanel visible={activeTab === 0}>
             <MemberSearchPanel
               onMemberSelected={handleMemberSelected}
@@ -445,7 +448,6 @@ export default function ClientManualMatchDashboard() {
             />
           </AlwaysMountedPanel>
 
-          {/* EmployerGroupSearchPanel keeps onCcodeSelected — no full record equivalent */}
           <AlwaysMountedPanel visible={activeTab === 1}>
             <EmployerGroupSearchPanel
               onCcodeSelected={setSelectedCcode}
