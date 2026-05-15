@@ -2,16 +2,14 @@
 //
 // Host panel wrapping the MemberSearchWidget MFE remote component.
 //
-// Widget contract (verified against MemberSearchWidget.tsx source):
-//   network, ccode, onMemberSelected, autoSearch, mode,
-// fields:
-//   scenarioConfig.memberFields from Dashboard → widget → MemberSearch
-//   → yellow background sx on each targeted form field.
-//
-// onMemberSelected wiring status:
-//   Widget now destructures onMemberSelected (bug fixed in MemberSearchWidget.tsx).
-//   Chain: MemberSearchWidget → CollapsibleMemberResults → MemberResults.
-//   MemberResults.tsx still needs onRowSelect wired to DataGrid row-click.
+// CHANGES (Fix 1 — eligMemberId / serviceDate from MFE selection):
+//   • Added `onMemberSelected` prop — fires with the full MemberRecord on row
+//     selection. Host (ClientManualMatchDashboard) extracts:
+//       member.id          → eligMemberId (Number) for UpdateCcode payload
+//       member.effectiveDate → serviceDate for UpdateCcode payload
+//   • `handleMemberSelected` guard fixed: previously returned early when
+//     onCcodeSelected was absent, silently dropping onMemberSelected calls.
+//     Both callbacks are now independent.
 
 import { Suspense, lazy } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
@@ -33,7 +31,19 @@ const MemberSearchWidget = lazy(
 // ── Public panel props ────────────────────────────────────────────────────────
 
 export interface MemberSearchPanelProps {
+  /** Called with the ccode string when a member row is selected. */
   onCcodeSelected?: (ccode: string) => void;
+  /**
+   * Called with the full MemberRecord when a member row is selected.
+   *
+   * Host uses:
+   *   member.id            → Number(member.id) → UpdateCcodeRequest.eligMemberId
+   *   member.effectiveDate → UpdateCcodeRequest.serviceDate
+   *
+   * Independent of onCcodeSelected — both fire when a row is selected,
+   * regardless of whether the other callback is provided.
+   */
+  onMemberSelected?: (member: MemberRecord) => void;
   /** Fields to highlight yellow. Source: scenarioConfig.memberFields */
   fields?: MemberSearchField[];
   /** Pre-populated claim values — forwarded to MemberSearchWidget. */
@@ -66,8 +76,8 @@ function MemberSearchFallback() {
 
 /**
  * Extract ccode from a MemberRecord.
- * MemberRecord.ccode is optional — guard prevents a no-op state update
- * when the field is absent on a record.
+ * Guards against absent/non-string ccode so onCcodeSelected is not called
+ * with an empty string when the field is missing on a record.
  */
 function extractCcode(member: MemberRecord): string {
   return typeof member.ccode === 'string' ? member.ccode : '';
@@ -77,13 +87,19 @@ function extractCcode(member: MemberRecord): string {
 
 export default function MemberSearchPanel({
   onCcodeSelected,
+  onMemberSelected,
   fields,
   initialCriteria,
 }: MemberSearchPanelProps) {
+  /**
+   * Single entry point for all member-row selection callbacks.
+   * Both onCcodeSelected and onMemberSelected are independent — a missing
+   * one does not suppress the other.
+   */
   const handleMemberSelected = (member: MemberRecord) => {
-    if (!onCcodeSelected) return;
     const extracted = extractCcode(member);
-    if (extracted) onCcodeSelected(extracted);
+    if (extracted && onCcodeSelected) onCcodeSelected(extracted);
+    onMemberSelected?.(member);
   };
 
   return (

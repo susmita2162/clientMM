@@ -1,18 +1,27 @@
 // src/pages/ClientManualMatchDashboard.tsx
 //
-// Single entry point: claim always arrives via router state.
+// CHANGES:
 //
-//   state = { claim: HaltedClaim }
-//     → Search result mode. After any action → return to /manual-review.
+//   Fix 1 — eligMemberId / serviceDate from Member Search MFE:
+//     • Imports MemberRecord from MFE.
+//     • selectedEligMemberId state (number, default 0).
+//     • selectedMemberServiceDate state (string, default '').
+//     • handleMemberSelected callback: extracts member.id (→ Number) and
+//       member.effectiveDate from the selected MemberRecord.
+//     • Both states reset alongside selectedCcode when loading the next
+//       halted claim from the queue.
+//     • MemberSearchPanel receives onMemberSelected={handleMemberSelected}.
+//     • ClaimInformationPanel receives selectedEligMemberId and
+//       selectedMemberServiceDate as new props.
 //
-//   state = { claim: HaltedClaim, queueContext: QueueContext }
-//     → Queue mode. After every action → nextHalted → next claim.
-//       Queue empty → informational message shown.
+//   Fix 3 — Graceful exits after action errors:
+//     • ClaimInformationPanel receives onNavigateBack={() => navigate('/manual-review')}.
+//       When an action fails, the user can exit cleanly without triggering
+//       another API call. Queue-mode claims navigate back to /manual-review
+//       on error (not to the next claim in queue) — the error must be
+//       acknowledged before the user can continue.
 //
-// Scenario field config:
-//   getScenarioConfig(claim.scenario) → focusedMfe, memberFields, employerFields.
-//   Forwarded to panels → widget → form → yellow TextField sx per scenario matrix.
-//   Returns null for unrecognised scenarios (panels receive undefined → no highlight).
+// All other logic is unchanged.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -32,7 +41,10 @@ import { claimsApi } from '../services/claimsApi';
 import { getScenarioConfig } from '../utils/scenarioFieldConfig';
 import { adaptNextHaltedToHaltedClaim } from '../utils/claimAdapters';
 import type { HaltedClaim } from '../types/claims';
-import type { MemberSearchForm } from 'memberSearchApp/MemberSearchWidget';
+import type {
+  MemberRecord,
+  MemberSearchForm,
+} from 'memberSearchApp/MemberSearchWidget';
 import type { EmployerGroupSearchForm } from 'employerGroupSearchApp/EmployerGroupSearchWidget';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -78,51 +90,73 @@ export default function ClientManualMatchDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [queueEmpty, setQueueEmpty] = useState(false);
-  // Derive the initial active tab from the scenario on first render.
-  // location is available (declared above) — the initializer runs once
-  // synchronously, so no flash occurs.
-  //   scenarioConfig.focusedMfe === 'employerGroup' → Employer Group Search tab (1)
-  //   otherwise                                  → Member Search tab (0)
+
   const [activeTab, setActiveTab] = useState(() => {
     const state = location.state as { claim?: HaltedClaim } | null;
     const scenario = state?.claim?.scenario ?? '';
     const cfg = getScenarioConfig(scenario);
     return cfg && cfg.focusedMfe === 'employerGroup' ? 1 : 0;
   });
+
+  // ── MFE selection state ──────────────────────────────────────────────────
+  /** ccode from Member Search or Employer Group Search MFE row selection. */
   const [selectedCcode, setSelectedCcode] = useState('');
+  /**
+   * [Fix 1] eligMemberId from Member Search MFE (MemberRecord.id → Number).
+   * Sent as UpdateCcodeRequest.eligMemberId. Defaults to 0 when no member selected.
+   */
+  const [selectedEligMemberId, setSelectedEligMemberId] = useState<number>(0);
+  /**
+   * [Fix 1] serviceDate from Member Search MFE (MemberRecord.effectiveDate).
+   * Sent as UpdateCcodeRequest.serviceDate. Falls back to claim.serviceDate when empty.
+   */
+  const [selectedMemberServiceDate, setSelectedMemberServiceDate] =
+    useState<string>('');
 
   const queueContextRef = useRef<QueueContext | null>(null);
   const hasInitialized = useRef(false);
 
+  // ── Resets all MFE selection state ─────────────────────────────────────────
+  const resetMfeSelection = useCallback(() => {
+    setSelectedCcode('');
+    setSelectedEligMemberId(0);
+    setSelectedMemberServiceDate('');
+  }, []);
+
   // ── Queue loader ───────────────────────────────────────────────────────────
 
-  const loadNextHaltedClaim = useCallback(async (ctx: QueueContext) => {
-    setLoading(true);
-    setError(null);
-    setQueueEmpty(false);
-    setSelectedCcode('');
-    try {
-      const response = await claimsApi.getNextHaltedClaim({
-        claimType: ctx.claimType,
-        pended: ctx.pended,
-        network: ctx.network,
-        lockedByUser: 'SYSTEM',
-        lockExpiration: LOCK_EXPIRATION_MINUTES,
-      });
-      if (response) {
-        const nextClaim = adaptNextHaltedToHaltedClaim(response);
-        setClaim(nextClaim);
-        const nextCfg = getScenarioConfig(nextClaim.scenario ?? '');
-        setActiveTab(nextCfg && nextCfg.focusedMfe === 'employerGroup' ? 1 : 0);
-      } else {
-        setQueueEmpty(true);
+  const loadNextHaltedClaim = useCallback(
+    async (ctx: QueueContext) => {
+      setLoading(true);
+      setError(null);
+      setQueueEmpty(false);
+      resetMfeSelection();
+      try {
+        const response = await claimsApi.getNextHaltedClaim({
+          claimType: ctx.claimType,
+          pended: ctx.pended,
+          network: ctx.network,
+          lockedByUser: 'SYSTEM',
+          lockExpiration: LOCK_EXPIRATION_MINUTES,
+        });
+        if (response) {
+          const nextClaim = adaptNextHaltedToHaltedClaim(response);
+          setClaim(nextClaim);
+          const nextCfg = getScenarioConfig(nextClaim.scenario ?? '');
+          setActiveTab(
+            nextCfg && nextCfg.focusedMfe === 'employerGroup' ? 1 : 0
+          );
+        } else {
+          setQueueEmpty(true);
+        }
+      } catch {
+        setError('Failed to load next claim. Please try again.');
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      setError('Failed to load next claim. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [resetMfeSelection]
+  );
 
   // ── Initialisation ─────────────────────────────────────────────────────────
 
@@ -151,7 +185,9 @@ export default function ClientManualMatchDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Action handler ─────────────────────────────────────────────────────────
+  // ── Action handler (success path) ──────────────────────────────────────────
+  // Called only on API success. Errors are handled inside ClaimInformationPanel
+  // via the actionError state + onNavigateBack — this handler is not called on error.
 
   const handleClaimAction = useCallback(
     (
@@ -171,13 +207,21 @@ export default function ClientManualMatchDashboard() {
     [loadNextHaltedClaim, navigate]
   );
 
-  // ── Scenario config + MFE criteria ───────────────────────────────────────
-  // All hooks MUST be declared before any early returns (Rules of Hooks).
-  // claim may be null here — optional chaining handles it safely.
+  // ── [Fix 1] Member selection handler ──────────────────────────────────────
+  // Called by MemberSearchPanel when user selects a row in the Member Search results.
+  // Extracts eligMemberId and serviceDate for the UpdateCcode payload.
+
+  const handleMemberSelected = useCallback((member: MemberRecord) => {
+    // member.id is the MFE's internal record ID → maps to UpdateCcodeRequest.eligMemberId
+    setSelectedEligMemberId(Number(member.id) || 0);
+    // member.effectiveDate → UpdateCcodeRequest.serviceDate (MM-DD-YYYY from live API)
+    setSelectedMemberServiceDate(member.effectiveDate ?? '');
+  }, []);
+
+  // ── Scenario config + MFE criteria ────────────────────────────────────────
 
   const scenarioConfig = claim ? getScenarioConfig(claim.scenario ?? '') : null;
 
-  // All available claim values keyed by MemberSearchField (1-to-1 mapping)
   const memberAllValues: Record<string, string | undefined> = {
     network: claim?.network || undefined,
     insuredId: claim?.insuredId || undefined,
@@ -188,7 +232,6 @@ export default function ClientManualMatchDashboard() {
     lastName: claim?.lastName || undefined,
   };
 
-  // EmployerGroupField → EmployerGroupSearchForm key translation
   const EG_FIELD_TO_FORM_KEY: Record<string, string> = {
     network: 'network',
     policyAlias: 'policyNumAlias',
@@ -205,8 +248,6 @@ export default function ClientManualMatchDashboard() {
     parentCodeDescription: claim?.payer || undefined,
   };
 
-  // Build initialCriteria from scenarioConfig.memberFields / employerFields only.
-  // Auto-search runs with exactly the scenario-defined fields and their claim values.
   const memberInitialCriteria = useMemo(():
     | Partial<MemberSearchForm>
     | undefined => {
@@ -322,12 +363,17 @@ export default function ClientManualMatchDashboard() {
         overflow: 'hidden',
       }}
     >
-      {/* Claim Information — live Client Code display */}
+      {/* Claim Information — Fix 1: eligMemberId + serviceDate wired in.
+          Fix 3: onNavigateBack always goes to /manual-review on error,
+                 even in queue mode — the error must be acknowledged first. */}
       <Box sx={{ flexShrink: 0 }}>
         <ClaimInformationPanel
           claim={claim}
           onAction={handleClaimAction}
           selectedCcode={selectedCcode || undefined}
+          selectedEligMemberId={selectedEligMemberId}
+          selectedMemberServiceDate={selectedMemberServiceDate}
+          onNavigateBack={() => void navigate('/manual-review')}
         />
       </Box>
 
@@ -392,9 +438,11 @@ export default function ClientManualMatchDashboard() {
             overflow: 'hidden',
           }}
         >
+          {/* [Fix 1] onMemberSelected wired — extracts id + effectiveDate */}
           <AlwaysMountedPanel visible={activeTab === 0}>
             <MemberSearchPanel
               onCcodeSelected={setSelectedCcode}
+              onMemberSelected={handleMemberSelected}
               fields={scenarioConfig?.memberFields}
               initialCriteria={memberInitialCriteria}
             />

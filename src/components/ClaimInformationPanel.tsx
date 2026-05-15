@@ -1,26 +1,36 @@
 // src/components/ClaimInformationPanel.tsx
 // Thin orchestrator — owns actionLoading, snackbar, isPended state, and API calls.
 //
-// isPended is local state (not derived on every render) so it can be updated
-// immediately after a successful Pend Claim API call — toggling the button
-// states without requiring a claim re-fetch or navigation.
+// CHANGES:
 //
-// Flow:
-//   1. Claim loads with pendedClaim 'N' → isPended = false
-//      → Pend Claim enabled, Pend Notes disabled
-//   2. User clicks Pend Claim → dialog → notes → Save
-//   3. API succeeds → setIsPended(true)
-//      → Pend Claim disabled, Pend Notes enabled
-//   4. onAction('pendClaim') called → parent handles navigation / next claim
+//   Fix 1 — eligMemberId / serviceDate from Member Search MFE:
+//     • New props: selectedEligMemberId, selectedMemberServiceDate.
+//     • handleUpdateCcodeClick uses these in the UpdateCcode payload instead
+//       of the hardcoded 0 and claim.serviceDate.
+//     • Fallbacks: eligMemberId → 0, serviceDate → claim.serviceDate when
+//       no member has been selected in the MFE.
 //
-// Update CCode:
-//   ccode value used: selectedCcode (from MFE) when available, else claim.ccode.
-//   No dialog — direct POST.
-//   selectedCcode is ALSO forwarded to ClaimInfoGrid so the Client Code field
-//   reflects the pending selection in real-time before the user hits the button.
+//   Fix 2 — userName = 'system' (already correct, no change):
+//     • userName defaults to 'system'. Used as lockedByUser (updateCcode),
+//       userName (pend, deny). Will be replaced with auth context value
+//       when auth is integrated.
+//
+//   Fix 3 — Graceful exits after action errors:
+//     • actionError state replaces snackbar for error cases.
+//     • On any API error: dialogs are closed and actionError is set.
+//     • While actionError is set: all action buttons are disabled
+//       (anyLoading includes actionError !== null).
+//     • Persistent inline Alert shows the error with two options:
+//         "Dismiss"              — clears actionError, re-enables buttons.
+//         "Return to Dashboard"  — calls onNavigateBack (new prop).
+//     • Snackbar is now success-only.
+//
+// isPended flow (unchanged):
+//   pendedClaim 'N' → false → Pend Claim enabled, Pend Notes disabled.
+//   API success     → true  → Pend Claim disabled, Pend Notes enabled.
 
 import { useState } from 'react';
-import { Alert, Box, Snackbar } from '@mui/material';
+import { Alert, Box, Button, Snackbar } from '@mui/material';
 import Collapsible from './shared/Collapsible';
 import ClaimInfoGrid from './ClaimInfoGrid';
 import ClaimActionBar from './ClaimActionBar';
@@ -37,15 +47,30 @@ interface Props {
     action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim'
   ) => void;
   /**
-   * CCode selected in a MFE panel (Member Search → ccode,
-   * Employer Group Search → clientCode).
-   *
+   * CCode selected in a MFE panel.
    * Two roles:
    *   1. Forwarded to ClaimInfoGrid → "Client Code" field updates live.
    *   2. Used as the ccode payload in the Update CCode POST.
    *      Falls back to claim.ccode when absent.
    */
   selectedCcode?: string;
+  /**
+   * [Fix 1] eligMemberId from Member Search MFE (MemberRecord.id as Number).
+   * Sent as UpdateCcodeRequest.eligMemberId. Defaults to 0 when no member
+   * has been selected in the panel.
+   */
+  selectedEligMemberId?: number;
+  /**
+   * [Fix 1] serviceDate from Member Search MFE (MemberRecord.effectiveDate).
+   * Sent as UpdateCcodeRequest.serviceDate.
+   * Falls back to claim.serviceDate when absent.
+   */
+  selectedMemberServiceDate?: string;
+  /**
+   * [Fix 3] Called when the user clicks "Return to Dashboard" in the
+   * post-error Alert. Wired to navigate('/manual-review') by the parent.
+   */
+  onNavigateBack?: () => void;
   /** Defaults to 'system'. Replace with auth context value when available. */
   userName?: string;
 }
@@ -70,34 +95,36 @@ export default function ClaimInformationPanel({
   claim,
   onAction,
   selectedCcode,
+  selectedEligMemberId,
+  selectedMemberServiceDate,
+  onNavigateBack,
   userName = 'system',
 }: Props) {
   // ── Pend state ─────────────────────────────────────────────────────────────
-  // Local so it updates immediately after a successful API call without a
-  // re-fetch. Initialised from claim.pendedClaim on mount.
   const [isPended, setIsPended] = useState(claim.pendedClaim === 'Y');
 
-  // --------------------------------------------------------------------------
-  // Loading
-  // --------------------------------------------------------------------------
+  // ── Loading ────────────────────────────────────────────────────────────────
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const anyLoading = actionLoading !== null;
 
-  // --------------------------------------------------------------------------
-  // Snackbar
-  // --------------------------------------------------------------------------
+  // ── [Fix 3] Action error ───────────────────────────────────────────────────
+  // Set on any API error. While set, all action buttons are disabled and a
+  // persistent Alert is shown with Dismiss / Return to Dashboard options.
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Buttons are disabled during loading OR while an unacknowledged error is shown.
+  const anyLoading = actionLoading !== null || actionError !== null;
+
+  // ── Snackbar (success only) ────────────────────────────────────────────────
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
-    severity: 'success' | 'error';
-  }>({ open: false, message: '', severity: 'success' });
+  }>({ open: false, message: '' });
 
-  const showSnackbar = (message: string, severity: 'success' | 'error') =>
-    setSnackbar({ open: true, message, severity });
+  const showSuccess = (message: string) => setSnackbar({ open: true, message });
 
   // ── Update CCode ───────────────────────────────────────────────────────────
-  // Uses selectedCcode when available; falls back to claim.ccode.
-  // No dialog — direct POST.
+  // Fix 1: eligMemberId ← selectedEligMemberId ?? 0
+  //        serviceDate  ← selectedMemberServiceDate || claim.serviceDate
   const handleUpdateCcodeClick = () => {
     const ccodeToSubmit = selectedCcode || claim.ccode;
 
@@ -109,23 +136,23 @@ export default function ClaimInformationPanel({
         policyAlias: '',
         forceCcode: false,
         forcePolicy: false,
-        serviceDate: claim.serviceDate,
+        serviceDate: selectedMemberServiceDate || claim.serviceDate,
         receiptDate: claim.dateOfReceipt,
         claimNumber: claim.claimNumber,
         claimType: claim.claimType,
         statusCode: '',
         lockedByUser: userName,
-        eligMemberId: 0,
+        eligMemberId: selectedEligMemberId ?? 0,
         ccodeRecId: 0,
       })
       .then(() => {
-        showSnackbar('CCode updated successfully.', 'success');
+        showSuccess('CCode updated successfully.');
         onAction('updateCCode');
       })
       .catch((err: unknown) =>
-        showSnackbar(
-          resolveErrorMessage(err, 'Failed to update CCode. Please try again.'),
-          'error'
+        // Fix 3: set persistent error — do not re-enable buttons automatically.
+        setActionError(
+          resolveErrorMessage(err, 'Failed to update CCode. Please try again.')
         )
       )
       .finally(() => setActionLoading(null));
@@ -154,26 +181,21 @@ export default function ClaimInformationPanel({
       })
       .then(() => {
         setPendOpen(false);
-        // pendClaim → isPended becomes true (Pend Claim disabled, Pend Notes enabled).
-        // pendNotes → pend state unchanged (claim was already pended).
-        if (pendMode === 'pendClaim') {
-          setIsPended(true);
-        }
-        showSnackbar('Claim pended successfully.', 'success');
+        if (pendMode === 'pendClaim') setIsPended(true);
+        showSuccess('Claim pended successfully.');
         onAction(pendMode);
       })
-      .catch((err: unknown) =>
-        showSnackbar(
-          resolveErrorMessage(err, 'Failed to pend claim. Please try again.'),
-          'error'
-        )
-      )
+      .catch((err: unknown) => {
+        // Fix 3: close dialog so user cannot retry from inside it.
+        setPendOpen(false);
+        setActionError(
+          resolveErrorMessage(err, 'Failed to pend claim. Please try again.')
+        );
+      })
       .finally(() => setActionLoading(null));
   };
 
-  // --------------------------------------------------------------------------
-  // Deny
-  // --------------------------------------------------------------------------
+  // ── Deny ───────────────────────────────────────────────────────────────────
   const handleDenySubmit = (reason: string) => {
     setActionLoading('deny');
     claimsApi
@@ -185,13 +207,13 @@ export default function ClaimInformationPanel({
         denialReason: reason,
       })
       .then(() => {
-        showSnackbar('Claim denied successfully.', 'success');
+        showSuccess('Claim denied successfully.');
         onAction('denyClaim');
       })
       .catch((err: unknown) =>
-        showSnackbar(
-          resolveErrorMessage(err, 'Failed to deny claim. Please try again.'),
-          'error'
+        // Fix 3: set persistent error.
+        setActionError(
+          resolveErrorMessage(err, 'Failed to deny claim. Please try again.')
         )
       )
       .finally(() => setActionLoading(null));
@@ -203,12 +225,49 @@ export default function ClaimInformationPanel({
       <Collapsible title='Claim Information' defaultExpanded={true}>
         <Box sx={{ p: 1.5 }}>
           {/*
-            selectedCcode is forwarded so ClaimInfoGrid can display the
-            live-selected value in the "Client Code" field before the user
-            commits it via Update CCode.
+            [Fix 3] Persistent error alert — shown after any action failure.
+            Buttons remain disabled until user explicitly dismisses or exits.
           */}
+          {actionError && (
+            <Alert
+              severity='error'
+              sx={{ mb: 1.5 }}
+              action={
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 1,
+                    alignItems: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Button
+                    size='small'
+                    color='inherit'
+                    onClick={() => setActionError(null)}
+                  >
+                    Dismiss
+                  </Button>
+                  {onNavigateBack && (
+                    <Button
+                      size='small'
+                      color='inherit'
+                      variant='outlined'
+                      onClick={onNavigateBack}
+                      sx={{ whiteSpace: 'nowrap' }}
+                    >
+                      Return to Dashboard
+                    </Button>
+                  )}
+                </Box>
+              }
+            >
+              {actionError}
+            </Alert>
+          )}
+
           <ClaimInfoGrid claim={claim} selectedCcode={selectedCcode} />
-          {/* <Divider sx={{ my: 1 }} /> */}
+
           <ClaimActionBar
             claim={claim}
             anyLoading={anyLoading}
@@ -231,6 +290,7 @@ export default function ClaimInformationPanel({
         onConfirm={handlePendConfirm}
       />
 
+      {/* Success-only snackbar — errors use the persistent Alert above. */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
@@ -239,7 +299,7 @@ export default function ClaimInformationPanel({
       >
         <Alert
           onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
+          severity='success'
           variant='filled'
           sx={{ width: '100%' }}
         >
