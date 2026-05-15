@@ -2,14 +2,17 @@
 //
 // Host panel wrapping the MemberSearchWidget MFE remote component.
 //
-// CHANGES (Fix 1 — eligMemberId / serviceDate from MFE selection):
-//   • Added `onMemberSelected` prop — fires with the full MemberRecord on row
-//     selection. Host (ClientManualMatchDashboard) extracts:
-//       member.id          → eligMemberId (Number) for UpdateCcode payload
-//       member.effectiveDate → serviceDate for UpdateCcode payload
-//   • `handleMemberSelected` guard fixed: previously returned early when
-//     onCcodeSelected was absent, silently dropping onMemberSelected calls.
-//     Both callbacks are now independent.
+// CHANGES:
+//   • Removed onCcodeSelected prop — ccode is now extracted by the parent
+//     (ClientManualMatchDashboard) directly from the MemberRecord in
+//     handleMemberSelected, alongside eligMemberId and effectiveDate.
+//     onCcodeSelected was a subset of what onMemberSelected already provides;
+//     keeping both was redundant.
+//   • Removed extractCcode helper — no longer needed here.
+//   • handleMemberSelected simplifies to a direct forward of the MemberRecord.
+//
+// NOTE: EmployerGroupSearchPanel keeps its own onCcodeSelected — that panel
+// does not expose a full record equivalent.
 
 import { Suspense, lazy } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
@@ -31,17 +34,9 @@ const MemberSearchWidget = lazy(
 // ── Public panel props ────────────────────────────────────────────────────────
 
 export interface MemberSearchPanelProps {
-  /** Called with the ccode string when a member row is selected. */
-  onCcodeSelected?: (ccode: string) => void;
   /**
    * Called with the full MemberRecord when a member row is selected.
-   *
-   * Host uses:
-   *   member.id            → Number(member.id) → UpdateCcodeRequest.eligMemberId
-   *   member.effectiveDate → UpdateCcodeRequest.serviceDate
-   *
-   * Independent of onCcodeSelected — both fire when a row is selected,
-   * regardless of whether the other callback is provided.
+   * Parent extracts: member.ccode, member.id, member.effectiveDate.
    */
   onMemberSelected?: (member: MemberRecord) => void;
   /** Fields to highlight yellow. Source: scenarioConfig.memberFields */
@@ -72,36 +67,13 @@ function MemberSearchFallback() {
   );
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Extract ccode from a MemberRecord.
- * Guards against absent/non-string ccode so onCcodeSelected is not called
- * with an empty string when the field is missing on a record.
- */
-function extractCcode(member: MemberRecord): string {
-  return typeof member.ccode === 'string' ? member.ccode : '';
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function MemberSearchPanel({
-  onCcodeSelected,
   onMemberSelected,
   fields,
   initialCriteria,
 }: MemberSearchPanelProps) {
-  /**
-   * Single entry point for all member-row selection callbacks.
-   * Both onCcodeSelected and onMemberSelected are independent — a missing
-   * one does not suppress the other.
-   */
-  const handleMemberSelected = (member: MemberRecord) => {
-    const extracted = extractCcode(member);
-    if (extracted && onCcodeSelected) onCcodeSelected(extracted);
-    onMemberSelected?.(member);
-  };
-
   return (
     <Box
       sx={{
@@ -115,7 +87,7 @@ export default function MemberSearchPanel({
       <MfeErrorBoundary mfeName='Member Search'>
         <Suspense fallback={<MemberSearchFallback />}>
           <MemberSearchWidget
-            onMemberSelected={handleMemberSelected}
+            onMemberSelected={onMemberSelected}
             autoSearch={true}
             mode={'embedded' as MemberSearchMode}
             fields={fields}

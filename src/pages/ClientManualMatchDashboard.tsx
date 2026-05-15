@@ -1,27 +1,23 @@
 // src/pages/ClientManualMatchDashboard.tsx
 //
-// CHANGES:
+// CHANGES (this iteration):
 //
-//   Fix 1 — eligMemberId / serviceDate from Member Search MFE:
-//     • Imports MemberRecord from MFE.
-//     • selectedEligMemberId state (number, default 0).
-//     • selectedMemberServiceDate state (string, default '').
-//     • handleMemberSelected callback: extracts member.id (→ Number) and
-//       member.effectiveDate from the selected MemberRecord.
-//     • Both states reset alongside selectedCcode when loading the next
-//       halted claim from the queue.
-//     • MemberSearchPanel receives onMemberSelected={handleMemberSelected}.
-//     • ClaimInformationPanel receives selectedEligMemberId and
-//       selectedMemberServiceDate as new props.
+//   Fix — serviceDate → effectiveDate in Member Search auto-search:
+//     MemberSearchForm.serviceDate is display-only in embedded mode and is
+//     NOT sent to the Member Search API. MemberSearchForm.effectiveDate IS
+//     sent. In memberInitialCriteria, after building from scenario fields,
+//     if serviceDate is present inject effectiveDate with the same value so
+//     the auto-search fires with the correct date filter.
 //
-//   Fix 3 — Graceful exits after action errors:
-//     • ClaimInformationPanel receives onNavigateBack={() => navigate('/manual-review')}.
-//       When an action fails, the user can exit cleanly without triggering
-//       another API call. Queue-mode claims navigate back to /manual-review
-//       on error (not to the next claim in queue) — the error must be
-//       acknowledged before the user can continue.
+//   Fix — ccode from MemberRecord (remove redundant onCcodeSelected):
+//     handleMemberSelected now also calls setSelectedCcode(member.ccode ?? '').
+//     MemberSearchPanel no longer has onCcodeSelected — it was a subset of
+//     what onMemberSelected already provides. MemberSearchPanel JSX updated
+//     accordingly (onCcodeSelected prop removed).
+//     EmployerGroupSearchPanel keeps onCcodeSelected={setSelectedCcode} —
+//     that panel does not expose a full record equivalent.
 //
-// All other logic is unchanged.
+// All other logic is unchanged from the previous iteration.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -98,25 +94,20 @@ export default function ClientManualMatchDashboard() {
     return cfg && cfg.focusedMfe === 'employerGroup' ? 1 : 0;
   });
 
-  // ── MFE selection state ──────────────────────────────────────────────────
-  /** ccode from Member Search or Employer Group Search MFE row selection. */
+  // ── MFE selection state ───────────────────────────────────────────────────
+  /** ccode from MemberRecord.ccode (Member Search) or EmployerGroupSearchPanel. */
   const [selectedCcode, setSelectedCcode] = useState('');
-  /**
-   * [Fix 1] eligMemberId from Member Search MFE (MemberRecord.id → Number).
-   * Sent as UpdateCcodeRequest.eligMemberId. Defaults to 0 when no member selected.
-   */
+  /** MemberRecord.id → Number → UpdateCcodeRequest.eligMemberId */
   const [selectedEligMemberId, setSelectedEligMemberId] = useState<number>(0);
-  /**
-   * [Fix 1] serviceDate from Member Search MFE (MemberRecord.effectiveDate).
-   * Sent as UpdateCcodeRequest.serviceDate. Falls back to claim.serviceDate when empty.
-   */
+  /** MemberRecord.effectiveDate → UpdateCcodeRequest.serviceDate */
   const [selectedMemberServiceDate, setSelectedMemberServiceDate] =
     useState<string>('');
 
   const queueContextRef = useRef<QueueContext | null>(null);
   const hasInitialized = useRef(false);
 
-  // ── Resets all MFE selection state ─────────────────────────────────────────
+  // ── Reset all MFE selection state ─────────────────────────────────────────
+
   const resetMfeSelection = useCallback(() => {
     setSelectedCcode('');
     setSelectedEligMemberId(0);
@@ -185,9 +176,7 @@ export default function ClientManualMatchDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Action handler (success path) ──────────────────────────────────────────
-  // Called only on API success. Errors are handled inside ClaimInformationPanel
-  // via the actionError state + onNavigateBack — this handler is not called on error.
+  // ── Action handler (success path only) ────────────────────────────────────
 
   const handleClaimAction = useCallback(
     (
@@ -207,14 +196,15 @@ export default function ClientManualMatchDashboard() {
     [loadNextHaltedClaim, navigate]
   );
 
-  // ── [Fix 1] Member selection handler ──────────────────────────────────────
-  // Called by MemberSearchPanel when user selects a row in the Member Search results.
-  // Extracts eligMemberId and serviceDate for the UpdateCcode payload.
+  // ── Member selection handler ───────────────────────────────────────────────
+  // Single callback for all member-derived state:
+  //   ccode        ← member.ccode        (selectedCcode for ClaimInfoGrid live display + updateCcode payload)
+  //   eligMemberId ← Number(member.id)   (UpdateCcodeRequest.eligMemberId)
+  //   serviceDate  ← member.effectiveDate (UpdateCcodeRequest.serviceDate)
 
   const handleMemberSelected = useCallback((member: MemberRecord) => {
-    // member.id is the MFE's internal record ID → maps to UpdateCcodeRequest.eligMemberId
+    setSelectedCcode(member.ccode ?? '');
     setSelectedEligMemberId(Number(member.id) || 0);
-    // member.effectiveDate → UpdateCcodeRequest.serviceDate (MM-DD-YYYY from live API)
     setSelectedMemberServiceDate(member.effectiveDate ?? '');
   }, []);
 
@@ -256,7 +246,18 @@ export default function ClientManualMatchDashboard() {
     const entries = fields
       .map((f): [string, string | undefined] => [f, memberAllValues[f]])
       .filter((entry): entry is [string, string] => entry[1] !== undefined);
-    return Object.fromEntries(entries) as Partial<MemberSearchForm>;
+    const criteria = Object.fromEntries(entries) as Partial<MemberSearchForm>;
+
+    // MemberSearchForm.serviceDate is display-only in embedded mode —
+    // it is NOT forwarded to the Member Search API by the MFE.
+    // MemberSearchForm.effectiveDate IS sent to the API.
+    // Inject effectiveDate from serviceDate so the auto-search fires with
+    // the correct date filter (dateOfService from the halted claim).
+    if (criteria.serviceDate) {
+      criteria.effectiveDate = criteria.serviceDate;
+    }
+
+    return criteria;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claim, scenarioConfig]);
 
@@ -363,9 +364,6 @@ export default function ClientManualMatchDashboard() {
         overflow: 'hidden',
       }}
     >
-      {/* Claim Information — Fix 1: eligMemberId + serviceDate wired in.
-          Fix 3: onNavigateBack always goes to /manual-review on error,
-                 even in queue mode — the error must be acknowledged first. */}
       <Box sx={{ flexShrink: 0 }}>
         <ClaimInformationPanel
           claim={claim}
@@ -438,16 +436,16 @@ export default function ClientManualMatchDashboard() {
             overflow: 'hidden',
           }}
         >
-          {/* [Fix 1] onMemberSelected wired — extracts id + effectiveDate */}
+          {/* onMemberSelected — single callback for ccode, eligMemberId, serviceDate */}
           <AlwaysMountedPanel visible={activeTab === 0}>
             <MemberSearchPanel
-              onCcodeSelected={setSelectedCcode}
               onMemberSelected={handleMemberSelected}
               fields={scenarioConfig?.memberFields}
               initialCriteria={memberInitialCriteria}
             />
           </AlwaysMountedPanel>
 
+          {/* EmployerGroupSearchPanel keeps onCcodeSelected — no full record equivalent */}
           <AlwaysMountedPanel visible={activeTab === 1}>
             <EmployerGroupSearchPanel
               onCcodeSelected={setSelectedCcode}
