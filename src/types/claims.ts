@@ -58,7 +58,7 @@ export interface NextHaltedClaimResponse {
   payerName: string | null;
   scenario: string | null;
   category: string | null;
-  claimType: string | null;
+  claimType: string | null; // 'H' | 'U' from API
   claimStream: string | null;
   relationship: string | null;
   policyNum: string | null;
@@ -77,9 +77,6 @@ export interface NextHaltedClaimResponse {
 // FIND BY CLAIM ID — LIVE RESPONSE
 // GET /api/clientMatch/claim/findByClaimId/:id
 // GET /api/clientMatch/claim/findByClientClaimId/:id
-//
-// Full schema from swagger (images 1-3).
-// claimsApi.adaptFindByClaimIdResponse() flattens this to HaltedClaim.
 // ============================================================================
 
 export interface FindByClaimIdAddress {
@@ -144,7 +141,7 @@ export interface FindByClaimIdLineGroup {
 
 /**
  * Complete live response shape from swagger.
- * claimType: "H" = HCFA, "U" = UB.
+ * claimType: "H" = HCFA, "U" = UB — stored as-is in HaltedClaim.claimType.
  * claimNumber: int64 from live API.
  * clientCode: maps to ccode in HaltedClaim.
  * additionalInfo.info[] contains scenario, matchType, reasonCode, stc0101, etc.
@@ -168,15 +165,20 @@ export interface FindByClaimIdLiveResponse {
 
 // ============================================================================
 // HALTED CLAIM — INTERNAL FLAT SHAPE
-// Adapted from NextHaltedClaimResponse and FindByClaimIdLiveResponse
-// by claimsApi.ts. Consumed by ClaimInfoGrid, ClaimInformationPanel, etc.
+// Adapted from NextHaltedClaimResponse and FindByClaimIdLiveResponse.
+//
+// claimType: 'H' | 'U' — API values, used directly in action payloads.
+//   'H' = HCFA, 'U' = UB.
+//   Both adapters (adaptNextHaltedToHaltedClaim, adaptFindByClaimIdResponse)
+//   store the raw API value — no conversion. ClaimInfoGrid renders it as-is.
 // ============================================================================
 
 export interface HaltedClaim {
   claimNumber: string;
   clientClaimId: string;
   claimStream: string;
-  claimType: 'HCFA' | 'UB';
+  /** API value: 'H' (HCFA) or 'U' (UB). Used as-is in action payloads. */
+  claimType: 'H' | 'U';
   dateOfReceipt: string;
   serviceDate: string;
   policy: string;

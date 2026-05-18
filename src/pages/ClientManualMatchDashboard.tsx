@@ -135,7 +135,7 @@ export default function ClientManualMatchDashboard() {
           claimType: ctx.claimType,
           pended: ctx.pended,
           network: ctx.network,
-          lockedByUser: 'SYSTEM',
+          lockedByUser: 'system',
           lockExpiration: LOCK_EXPIRATION_MINUTES,
         });
         if (response) {

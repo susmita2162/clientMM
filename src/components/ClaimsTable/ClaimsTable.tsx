@@ -96,7 +96,7 @@ const ClaimsTable = () => {
         claimType: apiClaimType,
         pended: category === 'manual-pended',
         network: claimStream,
-        lockedByUser: 'SYSTEM', // replace with auth user when available
+        lockedByUser: 'system', // replace with auth user when available
         lockExpiration: 15,
       });
 

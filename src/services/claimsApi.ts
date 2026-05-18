@@ -122,10 +122,6 @@ function getPostHeaders(): Record<string, string> {
  * Mock:  all paths → MOCK_API_URL
  * Live:  /api/client-match/*  → CLAIM_MATCH_API_URL
  *        everything else       → CLAIMS_SEARCH_API_URL
- *
- * No prefix is added — the base URL already includes the service segment.
- * Vite dev proxy (vite.config.ts) handles rewriting in development;
- * the env vars handle it in production.
  */
 function buildUrl(path: string): string {
   if (!IS_LIVE) return `${MOCK_API_URL}${path}`;
@@ -156,7 +152,8 @@ function fetchWithTimeout(
 //   claimNumber         ← live.claimNumber (int64 → string)
 //   clientClaimId       ← live.clientClaimNumber
 //   claimStream         ← live.lineOfBusiness
-//   claimType           ← live.claimType ("H"→HCFA, "U"→UB)
+//   claimType           ← live.claimType — stored as-is ('H' | 'U').
+//                         No conversion — matches nextHalted API contract.
 //   dateOfReceipt       ← live.clientReceivedDate ?? live.receivedDate
 //   serviceDate         ← live.lines.line[0].serviceFromDate
 //   insuredId           ← live.insured.insuredID
@@ -187,10 +184,6 @@ function buildAddressString(live: FindByClaimIdLiveResponse): string {
   return [line1, line2].filter(Boolean).join(', ');
 }
 
-function mapClaimType(raw: string | null | undefined): 'HCFA' | 'UB' {
-  return (raw ?? '').toUpperCase() === 'U' ? 'UB' : 'HCFA';
-}
-
 function adaptFindByClaimIdResponse(
   live: FindByClaimIdLiveResponse
 ): HaltedClaim {
@@ -207,7 +200,9 @@ function adaptFindByClaimIdResponse(
     claimNumber: String(live.claimNumber ?? ''),
     clientClaimId: live.clientClaimNumber ?? '',
     claimStream: live.lineOfBusiness ?? '',
-    claimType: mapClaimType(live.claimType),
+    // Store raw API value ('H' | 'U') — no conversion.
+    // Consistent with adaptNextHaltedToHaltedClaim and action payload contract.
+    claimType: live.claimType === 'U' ? 'U' : 'H',
     dateOfReceipt: live.clientReceivedDate ?? live.receivedDate ?? '',
     serviceDate,
     policy: '',

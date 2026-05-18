@@ -9,7 +9,8 @@ export function adaptNextHaltedToHaltedClaim(
     claimNumber: r.claimNumber ?? '',
     clientClaimId: r.clientClaimId ?? '',
     claimStream: r.claimStream ?? '',
-    claimType: (r.claimType as 'HCFA' | 'UB') ?? 'HCFA',
+    // API returns 'H' | 'U' — cast to the correct union, no conversion needed.
+    claimType: (r.claimType as 'H' | 'U') ?? 'H',
     dateOfReceipt: r.receiptDate ?? '',
     serviceDate: r.dateOfService ?? '',
     policy: r.policyNum ?? '',
