@@ -93,15 +93,16 @@ export const columnWidths = {
 };
 
 // Banded row helper - alternating colors
+// extract each branch to a named helper above the export
+const evenRowBg = (theme: Theme): string =>
+  theme.palette.mode === 'dark' ? '#1a1a1a' : '#fafafa';
+
+const oddRowBg = (theme: Theme): string =>
+  theme.palette.mode === 'dark' ? '#121212' : '#ffffff';
+
 export const getBandedRowStyle = (index: number): SxProps<Theme> => ({
   backgroundColor: (theme) =>
-    index % 2 === 0
-      ? theme.palette.mode === 'dark'
-        ? '#1a1a1a'
-        : '#fafafa'
-      : theme.palette.mode === 'dark'
-        ? '#121212'
-        : '#ffffff',
+    index % 2 === 0 ? evenRowBg(theme) : oddRowBg(theme),
   '&:hover': {
     backgroundColor: (theme) =>
       theme.palette.mode === 'dark' ? '#2a2a2a' : '#f5f5f5',

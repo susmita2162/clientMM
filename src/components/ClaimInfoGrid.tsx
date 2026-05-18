@@ -42,13 +42,13 @@ const CLAIM_FIELDS: ClaimField[] = [
 // ── InfoField ─────────────────────────────────────────────────────────────────
 
 interface InfoFieldProps {
-  label: string;
-  value: string;
+  readonly label: string;
+  readonly value: string;
   /**
    * When true the value is rendered in primary.main to indicate a pending
    * (uncommitted) selection from a MFE search panel.
    */
-  pendingSelection?: boolean;
+  readonly pendingSelection?: boolean;
 }
 
 function InfoField({ label, value, pendingSelection = false }: InfoFieldProps) {
@@ -93,7 +93,7 @@ function InfoField({ label, value, pendingSelection = false }: InfoFieldProps) {
 // ── ClaimInfoGrid ─────────────────────────────────────────────────────────────
 
 interface Props {
-  claim: HaltedClaim;
+  readonly claim: HaltedClaim;
   /**
    * Live ccode from MFE row selection (Member Search → ccode,
    * Employer Group Search → clientCode).
@@ -103,7 +103,7 @@ interface Props {
    *   • Rendered in primary.main when it differs from claim.ccode,
    *     signalling a pending Update CCode action.
    */
-  selectedCcode?: string;
+  readonly selectedCcode?: string;
 }
 
 export default function ClaimInfoGrid({ claim, selectedCcode }: Props) {

@@ -39,17 +39,17 @@ export interface UpdateCcodeForm {
 }
 
 interface Props {
-  open: boolean;
-  onClose: () => void;
-  claim: HaltedClaim;
-  anyLoading: boolean;
-  isSubmitting: boolean;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly claim: HaltedClaim;
+  readonly anyLoading: boolean;
+  readonly isSubmitting: boolean;
   /**
    * CCode pre-selected in Member Search or Employer Group Search MFE.
    * When provided, takes priority over claim.ccode for the initial form value.
    */
-  externalCcode?: string;
-  onConfirm: (form: UpdateCcodeForm) => void;
+  readonly externalCcode?: string;
+  readonly onConfirm: (form: UpdateCcodeForm) => void;
 }
 
 const defaultForm = (): UpdateCcodeForm => ({
@@ -92,7 +92,7 @@ export default function UpdateCcodeDialog({
       }}
       maxWidth='xs'
       fullWidth
-      PaperProps={{ elevation: 4, sx: { borderRadius: 2 } }}
+      slotProps={{ paper: { elevation: 4, sx: { borderRadius: 2 } } }}
     >
       <DialogTitle sx={{ fontWeight: 700, fontSize: '1rem' }}>
         Update CCode
@@ -136,7 +136,7 @@ export default function UpdateCcodeDialog({
           size='small'
           fullWidth
           disabled={anyLoading}
-          inputProps={{ min: 0 }}
+          slotProps={{ htmlInput: { min: 0 } }}
         />
         <TextField
           label='CCode Rec ID'
@@ -146,7 +146,7 @@ export default function UpdateCcodeDialog({
           size='small'
           fullWidth
           disabled={anyLoading}
-          inputProps={{ min: 0 }}
+          slotProps={{ htmlInput: { min: 0 } }}
         />
         <Box sx={{ display: 'flex', gap: 2 }}>
           <FormControlLabel

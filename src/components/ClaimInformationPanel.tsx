@@ -42,8 +42,8 @@ import type { HaltedClaim } from '../types/claims';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
-  claim: HaltedClaim;
-  onAction: (
+  readonly claim: HaltedClaim;
+  readonly onAction: (
     action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim'
   ) => void;
   /**
@@ -53,26 +53,26 @@ interface Props {
    *   2. Used as the ccode payload in the Update CCode POST.
    *      Falls back to claim.ccode when absent.
    */
-  selectedCcode?: string;
+  readonly selectedCcode?: string;
   /**
    * [Fix 1] eligMemberId from Member Search MFE (MemberRecord.id as Number).
    * Sent as UpdateCcodeRequest.eligMemberId. Defaults to 0 when no member
    * has been selected in the panel.
    */
-  selectedEligMemberId?: number;
+  readonly selectedEligMemberId?: number;
   /**
    * [Fix 1] serviceDate from Member Search MFE (MemberRecord.effectiveDate).
    * Sent as UpdateCcodeRequest.serviceDate.
    * Falls back to claim.serviceDate when absent.
    */
-  selectedMemberServiceDate?: string;
+  readonly selectedMemberServiceDate?: string;
   /**
    * [Fix 3] Called when the user clicks "Return to Dashboard" in the
    * post-error Alert. Wired to navigate('/manual-review') by the parent.
    */
-  onNavigateBack?: () => void;
+  readonly onNavigateBack?: () => void;
   /** Defaults to 'system'. Replace with auth context value when available. */
-  userName?: string;
+  readonly userName?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

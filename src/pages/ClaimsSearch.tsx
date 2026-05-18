@@ -5,24 +5,10 @@ import type { ClaimsSearchCriteria } from '../types/claims';
 import ClaimsTable from '../components/ClaimsTable/ClaimsTable';
 
 export default function ClaimsSearch() {
-  // State
-  // const [rows, setRows] = React.useState<PostMatchSummary[]>([]);
-  // const [hasSearched, setHasSearched] = useState(false);
-  // const [totalRows, setTotalRows] = useState(0);
-  // const [searchCriteria, setSearchCriteria] = useState<ClaimsSearchCriteria>(
-  //   {}
-  // );
-
   // Handle search
-  const handleSearch = useCallback((_criteria: ClaimsSearchCriteria) => {
-    // setSearchCriteria(criteria);
-  }, []);
+  const handleSearch = useCallback((_criteria: ClaimsSearchCriteria) => {}, []);
 
-  const handleClear = useCallback(() => {
-    // setHasSearched(false);
-    // setTotalRows(0);
-    // setSearchCriteria({});
-  }, []);
+  const handleClear = useCallback(() => {}, []);
 
   return (
     <Box

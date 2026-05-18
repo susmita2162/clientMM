@@ -24,7 +24,6 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
 import type {
   ClientRecord,
-  EmployerGroupSearchWidgetProps,
   EmployerGroupField,
   EmployerGroupSearchForm,
 } from 'employerGroupSearchApp/EmployerGroupSearchWidget';
@@ -33,18 +32,16 @@ import type {
 
 const EmployerGroupSearchWidget = lazy(
   () => import('employerGroupSearchApp/EmployerGroupSearchWidget')
-) as React.LazyExoticComponent<
-  React.ComponentType<EmployerGroupSearchWidgetProps>
->;
+);
 
 // ── Public panel props ────────────────────────────────────────────────────────
 
 export interface EmployerGroupSearchPanelProps {
-  onCcodeSelected?: (ccode: string) => void;
+  readonly onCcodeSelected?: (ccode: string) => void;
   /** Fields to highlight yellow. Source: scenarioConfig.employerFields */
-  fields?: EmployerGroupField[];
+  readonly fields?: EmployerGroupField[];
   /** Pre-populated claim values — forwarded to EmployerGroupSearchWidget. */
-  initialCriteria?: Partial<EmployerGroupSearchForm>;
+  readonly initialCriteria?: Partial<EmployerGroupSearchForm>;
 }
 
 // ── Loading fallback ──────────────────────────────────────────────────────────

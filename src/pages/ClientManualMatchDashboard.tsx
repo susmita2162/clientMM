@@ -102,7 +102,7 @@ export default function ClientManualMatchDashboard() {
     const state = location.state as { claim?: HaltedClaim } | null;
     const scenario = state?.claim?.scenario ?? '';
     const cfg = getScenarioConfig(scenario);
-    return cfg && cfg.focusedMfe === 'employerGroup' ? 1 : 0;
+    return cfg?.focusedMfe === 'employerGroup' ? 1 : 0;
   });
 
   // ── MFE selection state ───────────────────────────────────────────────────
@@ -142,9 +142,7 @@ export default function ClientManualMatchDashboard() {
           const nextClaim = adaptNextHaltedToHaltedClaim(response);
           setClaim(nextClaim);
           const nextCfg = getScenarioConfig(nextClaim.scenario ?? '');
-          setActiveTab(
-            nextCfg && nextCfg.focusedMfe === 'employerGroup' ? 1 : 0
-          );
+          setActiveTab(nextCfg?.focusedMfe === 'employerGroup' ? 1 : 0);
         } else {
           setQueueEmpty(true);
         }

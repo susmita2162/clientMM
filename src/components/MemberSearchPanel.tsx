@@ -19,8 +19,6 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
 import type {
   MemberRecord,
-  MemberSearchMode,
-  MemberSearchWidgetProps,
   MemberSearchField,
   MemberSearchForm,
 } from 'memberSearchApp/MemberSearchWidget';
@@ -29,7 +27,7 @@ import type {
 
 const MemberSearchWidget = lazy(
   () => import('memberSearchApp/MemberSearchWidget')
-) as React.LazyExoticComponent<React.ComponentType<MemberSearchWidgetProps>>;
+);
 
 // ── Public panel props ────────────────────────────────────────────────────────
 
@@ -38,11 +36,11 @@ export interface MemberSearchPanelProps {
    * Called with the full MemberRecord when a member row is selected.
    * Parent extracts: member.ccode, member.id, member.effectiveDate.
    */
-  onMemberSelected?: (member: MemberRecord) => void;
+  readonly onMemberSelected?: (member: MemberRecord) => void;
   /** Fields to highlight yellow. Source: scenarioConfig.memberFields */
-  fields?: MemberSearchField[];
+  readonly fields?: MemberSearchField[];
   /** Pre-populated claim values — forwarded to MemberSearchWidget. */
-  initialCriteria?: Partial<MemberSearchForm>;
+  readonly initialCriteria?: Partial<MemberSearchForm>;
 }
 
 // ── Loading fallback ──────────────────────────────────────────────────────────
@@ -89,7 +87,7 @@ export default function MemberSearchPanel({
           <MemberSearchWidget
             onMemberSelected={onMemberSelected}
             autoSearch={true}
-            mode={'embedded' as MemberSearchMode}
+            mode='embedded'
             fields={fields}
             initialCriteria={initialCriteria}
           />

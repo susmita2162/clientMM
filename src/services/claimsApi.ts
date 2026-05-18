@@ -35,27 +35,21 @@ import { extractError, handleError } from '../utils/errorUtils';
 
 // ============================================================================
 // CONFIG
+// All VITE_* vars are declared in vite-env.d.ts — import.meta.env accesses
+// are fully typed as string. No casts or local workaround interfaces needed.
 // ============================================================================
 
-const API_MODE =
-  (import.meta.env.VITE_API_MODE as string | undefined) ?? 'mock';
+const API_MODE = import.meta.env.VITE_API_MODE;
 const IS_LIVE = API_MODE === 'live';
 
-const MOCK_API_URL =
-  (import.meta.env.VITE_MOCK_API_BASE_URL as string | undefined) ??
-  'http://localhost:3001';
+const MOCK_API_URL = import.meta.env.VITE_MOCK_API_BASE_URL;
 
 // One base URL per service — no path prefix added by buildUrl.
 // Set these in .env.local / deployment env to the full service base.
-const CLAIMS_SEARCH_API_URL =
-  (import.meta.env.VITE_CLAIMS_SEARCH_API_URL as string | undefined) ?? '';
-const CLAIM_MATCH_API_URL =
-  (import.meta.env.VITE_CLAIM_MATCH_API_URL as string | undefined) ?? '';
+const CLAIMS_SEARCH_API_URL = import.meta.env.VITE_CLAIMS_SEARCH_API_URL;
+const CLAIM_MATCH_API_URL = import.meta.env.VITE_CLAIM_MATCH_API_URL;
 
-const API_TIMEOUT = parseInt(
-  (import.meta.env.VITE_API_TIMEOUT as string | undefined) ?? '15000',
-  10
-);
+const API_TIMEOUT = Number.parseInt(import.meta.env.VITE_API_TIMEOUT, 10);
 
 if (import.meta.env.DEV && IS_LIVE) {
   if (!CLAIMS_SEARCH_API_URL) {
@@ -66,11 +60,7 @@ if (import.meta.env.DEV && IS_LIVE) {
   }
 }
 
-if (
-  import.meta.env.DEV &&
-  !IS_LIVE &&
-  !import.meta.env.VITE_MOCK_API_BASE_URL
-) {
+if (import.meta.env.DEV && !IS_LIVE && !MOCK_API_URL) {
   console.warn(
     '[claimsApi] VITE_MOCK_API_BASE_URL not set — falling back to http://localhost:3001'
   );

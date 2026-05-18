@@ -32,9 +32,9 @@ export type ClaimSearchParams = {
 };
 
 type Props = {
-  onSearch: (data: ClaimsSearchCriteria) => void;
-  onClear: () => void;
-  onClaimSearch?: (params: ClaimSearchParams) => Promise<void>;
+  readonly onSearch: (data: ClaimsSearchCriteria) => void;
+  readonly onClear: () => void;
+  readonly onClaimSearch?: (params: ClaimSearchParams) => Promise<void>;
 };
 
 const DEFAULTS: ClaimsSearchForm = {
@@ -79,7 +79,7 @@ export default function ClaimsSearchForm({
         });
         return;
       }
-      onSearch(data as ClaimsSearchCriteria);
+      onSearch(data);
     } finally {
       setIsSearching(false);
     }

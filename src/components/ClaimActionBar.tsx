@@ -37,19 +37,19 @@ import type { PendMode } from './PendDialog';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
-  claim: HaltedClaim;
-  anyLoading: boolean;
-  actionLoading: string | null;
+  readonly claim: HaltedClaim;
+  readonly anyLoading: boolean;
+  readonly actionLoading: string | null;
   /**
    * Whether the claim is currently pended (pendedClaim === "Y").
    * Controls which pend button is enabled:
    *   false → Pend Claim enabled, Pend Notes disabled
    *   true  → Pend Claim disabled, Pend Notes enabled
    */
-  isPended: boolean;
-  onUpdateCcodeClick: () => void;
-  onPendClick: (mode: PendMode) => void;
-  onDenySubmit: (reason: string) => void;
+  readonly isPended: boolean;
+  readonly onUpdateCcodeClick: () => void;
+  readonly onPendClick: (mode: PendMode) => void;
+  readonly onDenySubmit: (reason: string) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -121,6 +121,16 @@ export default function ClaimActionBar({
       return;
     }
     onDenySubmit(denialReason);
+  };
+
+  // --------------------------------------------------------------------------
+  // S3358 fix — denial reason placeholder label extracted from nested ternary.
+  // Called only when no option is selected (renderValue empty-state branch).
+  // --------------------------------------------------------------------------
+  const getEmptySelectionLabel = (): string => {
+    if (reasonsLoading) return 'Loading\u2026';
+    if (reasonsError) return 'Unavailable';
+    return 'Denial Reason';
   };
 
   // --------------------------------------------------------------------------
@@ -209,16 +219,13 @@ export default function ClaimActionBar({
             displayEmpty
             renderValue={(selected: string) => {
               if (!selected) {
+                // S3358: extracted to getEmptySelectionLabel — no nested ternary.
                 return (
                   <Box
                     component='span'
                     sx={{ color: 'text.secondary', fontStyle: 'italic' }}
                   >
-                    {reasonsLoading
-                      ? 'Loading\u2026'
-                      : reasonsError
-                        ? 'Unavailable'
-                        : 'Denial Reason'}
+                    {getEmptySelectionLabel()}
                   </Box>
                 );
               }
@@ -271,13 +278,16 @@ export default function ClaimActionBar({
       </Box>
 
       {/* Deny validation dialog */}
+      {/* S1874: PaperProps replaced with slotProps.paper (MUI v6) */}
       <Dialog
         open={denyValidationOpen}
         onClose={() => setDenyValidationOpen(false)}
         aria-labelledby='deny-validation-title'
-        PaperProps={{
-          elevation: 4,
-          sx: { borderRadius: 2, minWidth: 380, maxWidth: 440 },
+        slotProps={{
+          paper: {
+            elevation: 4,
+            sx: { borderRadius: 2, minWidth: 380, maxWidth: 440 },
+          },
         }}
       >
         <Box

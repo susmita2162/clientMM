@@ -29,19 +29,19 @@ import {
 export type PendMode = 'pendClaim' | 'pendNotes';
 
 interface Props {
-  open: boolean;
-  onClose: () => void;
-  mode: PendMode;
-  claimNumber: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly mode: PendMode;
+  readonly claimNumber: string;
   /**
    * Existing pend notes to display in the read-only upper section.
    * Optional — when not provided the upper section shows empty.
    * Wire this up once the API exposes an endpoint to fetch pend notes history.
    */
-  existingNotes?: string;
-  anyLoading: boolean;
-  isSubmitting: boolean;
-  onConfirm: (notes: string) => void;
+  readonly existingNotes?: string;
+  readonly anyLoading: boolean;
+  readonly isSubmitting: boolean;
+  readonly onConfirm: (notes: string) => void;
 }
 
 export default function PendDialog({
@@ -76,7 +76,7 @@ export default function PendDialog({
       onClose={handleClose}
       maxWidth='sm'
       fullWidth
-      PaperProps={{ elevation: 4, sx: { borderRadius: 2 } }}
+      slotProps={{ paper: { elevation: 4, sx: { borderRadius: 2 } } }}
     >
       <DialogTitle sx={{ fontWeight: 700, fontSize: '1rem', pb: 1 }}>
         {title}

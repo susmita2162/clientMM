@@ -11,10 +11,10 @@ import {
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 
 interface NotFoundDialogProps {
-  open: boolean;
-  onClose: () => void;
-  title?: string;
-  message?: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly title?: string;
+  readonly message?: string;
 }
 
 /**
@@ -38,9 +38,11 @@ export default function NotFoundDialog({
       onClose={onClose}
       maxWidth='sm'
       fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: 2,
+      slotProps={{
+        paper: {
+          sx: {
+            borderRadius: 2,
+          },
         },
       }}
     >
