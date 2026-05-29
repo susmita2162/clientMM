@@ -250,10 +250,12 @@ export default function ClientManualMatchDashboard() {
       .filter((entry): entry is [string, string] => entry[1] !== undefined);
     const criteria = Object.fromEntries(entries) as Partial<MemberSearchForm>;
 
-    // serviceDate from nextHalted is MM-DD-YYYY; <input type="date"> requires
-    // YYYY-MM-DD. Convert so the field populates and so buildSearchCriteria
-    // in memberService.ts intentionally converts YYYY-MM-DD → MM-DD-YYYY for
-    // the API (rather than relying on the regex not matching).
+    // serviceDate from nextHalted arrives as MM-DD-YYYY; <input type="date">
+    // requires YYYY-MM-DD — convert so the field populates correctly.
+    // effectiveDate is seeded with the same ISO value so the auto-search API
+    // call includes it. When the user edits serviceDate and clicks Search,
+    // buildSearchCriteria in memberService.ts overwrites effectiveDate with
+    // the updated serviceDate value at call time.
     if (criteria.serviceDate) {
       const isoDate = toIsoDate(criteria.serviceDate);
       criteria.serviceDate = isoDate;
