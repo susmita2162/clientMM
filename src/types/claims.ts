@@ -39,6 +39,12 @@ export interface NextHaltedClaimRequest {
  * Flat response — all top-level, all nullable (live API).
  * matchType is always 'HALT'. scenario drives MFE field highlighting.
  * pendedClaim: 'Y' | 'N' — drives Pend Claim / Pend Notes button state.
+ *
+ * Patient fields (patientFirstName, patientLastName, patientMiddleName,
+ * patientFullName, patientGender, patientAddress1, patientCityStateZip)
+ * are present in the live API response and are used by
+ * adaptNextHaltedToHaltedClaim to populate the ClaimInformationPanel.
+ * insured fields remain as fallbacks for subscriber-is-patient scenarios.
  */
 export interface NextHaltedClaimResponse {
   claimNumber: string;
@@ -50,11 +56,21 @@ export interface NextHaltedClaimResponse {
   insuredFullName: string | null;
   insuredFirstName: string | null;
   insuredLastName: string | null;
+  insuredMiddleName: string | null;
   insuredGender: string | null;
   insuredAddress1: string | null;
   insuredCityStateZip: string | null;
   insuredDob: string | null;
   memberDob: string | null;
+  // ── Patient fields — aligned with live API NextHaltedClaimResponse schema ──
+  patientFirstName: string | null;
+  patientLastName: string | null;
+  patientMiddleName: string | null;
+  patientFullName: string | null;
+  patientGender: string | null;
+  patientAddress1: string | null;
+  patientCityStateZip: string | null;
+  // ─────────────────────────────────────────────────────────────────────────
   payerName: string | null;
   scenario: string | null;
   category: string | null;
@@ -71,6 +87,8 @@ export interface NextHaltedClaimResponse {
   receiptDate: string | null;
   grpName: string | null;
   sender: string | null;
+  empName: string | null;
+  empGrpPolicyNum: string | null;
 }
 
 // ============================================================================
@@ -171,6 +189,12 @@ export interface FindByClaimIdLiveResponse {
 //   'H' = HCFA, 'U' = UB.
 //   Both adapters (adaptNextHaltedToHaltedClaim, adaptFindByClaimIdResponse)
 //   store the raw API value — no conversion. ClaimInfoGrid renders it as-is.
+//
+// Personal info fields (name, firstName, lastName, dateOfBirth, gender,
+// address) are sourced from the patient object in both adapters.
+// insured fields serve as fallbacks for subscriber-is-patient scenarios.
+// insuredId always comes from the insured object — it is an identifier,
+// not personal information.
 // ============================================================================
 
 export interface HaltedClaim {

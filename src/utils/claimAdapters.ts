@@ -1,10 +1,29 @@
 // src/utils/claimAdapters.ts
 import type { HaltedClaim, NextHaltedClaimResponse } from '../types/claims';
 
-/** Adapts nextHalted API response → HaltedClaim */
+/**
+ * Adapts nextHalted API response → HaltedClaim.
+ *
+ * All personal info fields (name, firstName, lastName, dateOfBirth, gender,
+ * address) are sourced from patient fields. insured fields are fallbacks
+ * only for subscriber-is-patient scenarios where patient fields are null.
+ *
+ * insuredId: always sourced from insuredId — it is a policy identifier,
+ * not personal information, and is unaffected by this requirement.
+ */
 export function adaptNextHaltedToHaltedClaim(
   r: NextHaltedClaimResponse
 ): HaltedClaim {
+  // Patient name — prefer patient fields, fall back to insured.
+  const patientName =
+    r.patientFullName ||
+    [r.patientFirstName, r.patientLastName].filter(Boolean).join(' ');
+
+  // Patient address — prefer patient fields, fall back to insured.
+  const patientAddress = [r.patientAddress1, r.patientCityStateZip]
+    .filter(Boolean)
+    .join(', ');
+
   return {
     claimNumber: r.claimNumber ?? '',
     clientClaimId: r.clientClaimId ?? '',
@@ -20,17 +39,16 @@ export function adaptNextHaltedToHaltedClaim(
     payer: r.payerName ?? '',
     sender: r.sender ?? '',
     network: r.network ?? '',
-    name:
-      r.insuredFullName ||
-      [r.insuredFirstName, r.insuredLastName].filter(Boolean).join(' '),
-    firstName: r.insuredFirstName ?? '',
-    lastName: r.insuredLastName ?? '',
-    dateOfBirth: r.insuredDob || r.memberDob || '',
-    gender: r.insuredGender ?? '',
+    // ── Patient personal info — insured fields are fallbacks only ────────────
+    name: patientName,
+    firstName: r.patientFirstName ?? '',
+    lastName: r.patientLastName ?? '',
+    // memberDob is the patient DOB field on this flat response.
+    dateOfBirth: r.memberDob || '',
+    gender: r.patientGender ?? '',
+    address: patientAddress,
+    // ─────────────────────────────────────────────────────────────────────────
     relationship: r.relationship ?? '',
-    address: [r.insuredAddress1, r.insuredCityStateZip]
-      .filter(Boolean)
-      .join(', '),
     category: r.pendedClaim === 'Y' ? 'MANUAL_REVIEW_PENDED' : 'MANUAL_REVIEW',
     status: 'HALTED',
     lockedBy: null,

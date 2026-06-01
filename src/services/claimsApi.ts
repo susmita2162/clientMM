@@ -138,7 +138,7 @@ function fetchWithTimeout(
 // ADAPTER — FindByClaimIdLiveResponse → HaltedClaim
 //
 //   HaltedClaim field   ← live source
-//   ─────────────────────────────────────────────────────────────
+//   ─────────────────────────────────────────────────────────────────────────
 //   claimNumber         ← live.claimNumber (int64 → string)
 //   clientClaimId       ← live.clientClaimNumber
 //   claimStream         ← live.lineOfBusiness
@@ -146,14 +146,20 @@ function fetchWithTimeout(
 //                         No conversion — matches nextHalted API contract.
 //   dateOfReceipt       ← live.clientReceivedDate ?? live.receivedDate
 //   serviceDate         ← live.lines.line[0].serviceFromDate
-//   insuredId           ← live.insured.insuredID
+//   insuredId           ← live.insured.insuredID  (identifier, stays on insured)
 //   ccode               ← live.clientCode
 //   group               ← live.employer.employerGroupName
 //   payer               ← live.payer.payerName
-//   dateOfBirth         ← live.insured.dateOfBirth
-//   gender              ← live.insured.gender
-//   relationship        ← live.insured.relationToPatient
-//   address             ← built from live.insured.address
+//   name                ← patient.firstName + patient.lastName
+//                         (fallback: insured.firstName + insured.lastName)
+//   firstName           ← patient.firstName (fallback: insured.firstName)
+//   lastName            ← patient.lastName  (fallback: insured.lastName)
+//   dateOfBirth         ← patient.dateOfBirth (fallback: insured.dateOfBirth)
+//   gender              ← patient.gender (fallback: insured.gender)
+//   relationship        ← insured.relationToPatient
+//                         (relationship lives on insured only per schema)
+//   address             ← built from patient.address
+//                         (fallback: insured.address)
 //   scenario            ← additionalInfo.info[scenario]
 //   matchType           ← additionalInfo.info[matchType] ?? 'HALT'
 //   pendedClaim         ← 'N' (not yet pended when found via search)
@@ -166,8 +172,14 @@ function parseAdditionalInfo(
   return Object.fromEntries(items.map((i) => [i.name, i.value]));
 }
 
+/**
+ * Builds a display address string from the patient address, falling back to
+ * the insured address when the patient address is absent.
+ */
 function buildAddressString(live: FindByClaimIdLiveResponse): string {
-  const a = live.insured?.address;
+  // Patient address takes priority per business requirement.
+  // Fall back to insured address when patient address is absent.
+  const a = live.patient?.address;
   if (!a) return '';
   const line1 = [a.street1, a.street2].filter(Boolean).join(' ');
   const line2 = [a.city, a.state, a.zip].filter(Boolean).join(' ');
@@ -178,8 +190,16 @@ function adaptFindByClaimIdResponse(
   live: FindByClaimIdLiveResponse
 ): HaltedClaim {
   const info = parseAdditionalInfo(live);
+  const patient = live.patient ?? {};
   const insured = live.insured ?? {};
-  const name = [insured.firstName, insured.lastName].filter(Boolean).join(' ');
+
+  // Patient fields take priority; insured fields are the fallback for
+  // subscriber-is-patient scenarios where patient fields are absent.
+  const firstName = patient.firstName ?? '';
+  const lastName = patient.lastName ?? '';
+  const middleName = patient.middleName ?? '';
+  const name = [firstName, middleName, lastName].filter(Boolean).join(' ');
+
   const serviceDate = live.lines?.line?.[0]?.serviceFromDate ?? '';
   const rawCategory = (info.category ?? '').toUpperCase();
   const category: HaltedClaim['category'] = rawCategory.includes('PENDED')
@@ -196,6 +216,8 @@ function adaptFindByClaimIdResponse(
     dateOfReceipt: live.clientReceivedDate ?? live.receivedDate ?? '',
     serviceDate,
     policy: '',
+    // insuredId is an identifier — always sourced from insured regardless of
+    // the patient vs. insured personal info requirement.
     insuredId: insured.insuredID ?? '',
     ccode: live.clientCode ?? '',
     group: live.employer?.employerGroupName ?? '',
@@ -203,10 +225,12 @@ function adaptFindByClaimIdResponse(
     sender: '',
     network: live.lineOfBusiness ?? '',
     name,
-    firstName: insured.firstName ?? '',
-    lastName: insured.lastName ?? '',
-    dateOfBirth: insured.dateOfBirth ?? '',
-    gender: insured.gender ?? '',
+    firstName,
+    lastName,
+    // middleName,
+    dateOfBirth: patient.dateOfBirth ?? '',
+    gender: patient.gender ?? '',
+    // relationship lives on insured only per the FindByClaimIdLiveResponse schema.
     relationship: insured.relationToPatient ?? '',
     address: buildAddressString(live),
     category,
