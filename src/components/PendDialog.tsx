@@ -35,8 +35,8 @@ interface Props {
   readonly claimNumber: string;
   /**
    * Existing pend notes to display in the read-only upper section.
-   * Optional — when not provided the upper section shows empty.
-   * Wire this up once the API exposes an endpoint to fetch pend notes history.
+   * Passed from ClaimInformationPanel — sourced from claim.pendNotes
+   * returned by both nextHalted and findByClaimId API responses.
    */
   readonly existingNotes?: string;
   readonly anyLoading: boolean;

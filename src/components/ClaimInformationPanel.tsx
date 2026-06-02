@@ -101,7 +101,17 @@ export default function ClaimInformationPanel({
   userName = 'system',
 }: Props) {
   // ── Pend state ─────────────────────────────────────────────────────────────
+  // prevClaimNumber tracks the last rendered claim so we can detect a claim
+  // change during render (queue advance) and reset isPended synchronously.
+  // This is the React-recommended pattern for resetting state on prop change:
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const [prevClaimNumber, setPrevClaimNumber] = useState(claim.claimNumber);
   const [isPended, setIsPended] = useState(claim.pendedClaim === 'Y');
+
+  if (prevClaimNumber !== claim.claimNumber) {
+    setPrevClaimNumber(claim.claimNumber);
+    setIsPended(claim.pendedClaim === 'Y');
+  }
 
   // ── Loading ────────────────────────────────────────────────────────────────
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -161,6 +171,16 @@ export default function ClaimInformationPanel({
   // ── Pend dialog ────────────────────────────────────────────────────────────
   const [pendOpen, setPendOpen] = useState(false);
   const [pendMode, setPendMode] = useState<PendMode>('pendClaim');
+
+  // Convert pendNotes array<object> → display string for PendDialog upper section.
+  // Each note object has string-keyed string values (per swagger "Additional properties: string").
+  // Object.values joins all values in a note; notes are separated by newlines.
+  // Note: once the exact key names (e.g. date, userName, noteText) are confirmed
+  // from a live response, replace Object.values with explicit key access for
+  // controlled ordering: `${note.date} - ${note.userName}: ${note.noteText}`
+  const existingNotesDisplay = (claim.pendNotes ?? [])
+    .map((note) => Object.values(note).join(' '))
+    .join('\n');
 
   const handlePendClick = (mode: PendMode) => {
     setPendMode(mode);
@@ -285,6 +305,7 @@ export default function ClaimInformationPanel({
         onClose={() => setPendOpen(false)}
         mode={pendMode}
         claimNumber={claim.claimNumber}
+        existingNotes={existingNotesDisplay}
         anyLoading={anyLoading}
         isSubmitting={actionLoading === 'pend'}
         onConfirm={handlePendConfirm}

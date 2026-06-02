@@ -89,6 +89,8 @@ export interface NextHaltedClaimResponse {
   sender: string | null;
   empName: string | null;
   empGrpPolicyNum: string | null;
+  /** Historical pend notes. Array of string-keyed objects per swagger schema. */
+  pendNotes?: Record<string, string>[] | null;
 }
 
 // ============================================================================
@@ -179,6 +181,10 @@ export interface FindByClaimIdLiveResponse {
   payer?: FindByClaimIdPayer | null;
   lineOfBusiness?: string | null;
   additionalInfo?: FindByClaimIdAdditionalInfo | null;
+  /** Pend indicator — 'Y' | 'N'. Maps to HaltedClaim.pendedClaim. */
+  userPend?: string | null;
+  /** Historical pend notes. Array of string-keyed objects per swagger schema. */
+  pendNotes?: Record<string, string>[] | null;
 }
 
 // ============================================================================
@@ -225,6 +231,8 @@ export interface HaltedClaim {
   lockedAt: string | null;
   /** 'Y' = already pended, 'N' = not yet pended. Drives button state. */
   pendedClaim?: string;
+  /** Historical pend notes from API response. Displayed in PendDialog upper section. */
+  pendNotes?: Record<string, string>[];
   /** Scenario code (e.g. "INSID LN3"). Drives MFE field highlighting. */
   scenario?: string;
   /** Always 'HALT' for halted claims. */

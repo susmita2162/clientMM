@@ -162,7 +162,9 @@ function fetchWithTimeout(
 //                         (fallback: insured.address)
 //   scenario            ← additionalInfo.info[scenario]
 //   matchType           ← additionalInfo.info[matchType] ?? 'HALT'
-//   pendedClaim         ← 'N' (not yet pended when found via search)
+//   pendedClaim         ← live.userPend ('Y'|'N'). userPend is the pend
+//                         indicator on this endpoint; normalised to the same
+//                         'Y'|'N' contract used by nextHalted (pendedClaim).
 // ============================================================================
 
 function parseAdditionalInfo(
@@ -237,9 +239,10 @@ function adaptFindByClaimIdResponse(
     status: 'HALTED',
     lockedBy: null,
     lockedAt: null,
-    pendedClaim: 'N',
+    pendedClaim: live.userPend === 'Y' ? 'Y' : 'N',
     scenario: info.scenario ?? '',
     matchType: info.matchType ?? 'HALT',
+    pendNotes: live.pendNotes ?? [],
   };
 }
 

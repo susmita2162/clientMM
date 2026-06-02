@@ -56,5 +56,6 @@ export function adaptNextHaltedToHaltedClaim(
     pendedClaim: r.pendedClaim ?? 'N',
     scenario: r.scenario ?? '',
     matchType: r.matchType ?? 'HALT',
+    pendNotes: r.pendNotes ?? [],
   };
 }
