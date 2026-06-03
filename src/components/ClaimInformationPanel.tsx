@@ -1,36 +1,38 @@
 // src/components/ClaimInformationPanel.tsx
 // Thin orchestrator — owns actionLoading, snackbar, isPended state, and API calls.
 //
-// CHANGES:
+// CHANGES (this iteration):
 //
-//   Fix 1 — eligMemberId / serviceDate from Member Search MFE:
-//     • New props: selectedEligMemberId, selectedMemberServiceDate.
-//     • handleUpdateCcodeClick uses these in the UpdateCcode payload instead
-//       of the hardcoded 0 and claim.serviceDate.
-//     • Fallbacks: eligMemberId → 0, serviceDate → claim.serviceDate when
-//       no member has been selected in the MFE.
+//   Update CCode — Dialog 1 (MR Match Type):
+//     • New prop: selectedMatchType.
+//     • handleUpdateCcodeClick checks selectedMatchType === 'MR' before firing
+//       the API. If matched, shows mrMatchDialog asking for enrollment confirmation.
+//       Yes → submitUpdateCcode(forceCcode: true).
+//       No  → closes dialog, no action.
 //
-//   Fix 2 — userName = 'system' (already correct, no change):
-//     • userName defaults to 'system'. Used as lockedByUser (updateCcode),
-//       userName (pend, deny). Will be replaced with auth context value
-//       when auth is integrated.
+//   Update CCode — Dialog 2 (Invalid CCode / ALERT response):
+//     • claimsApi.updateCcode now returns UpdateCcodeResult (discriminated union).
+//     • submitUpdateCcode inspects result.type === 'alert' + parameters.invalid === 'ccode'
+//       and shows invalidCcodeDialog with the API-supplied message.
+//       Yes → submitUpdateCcode(forceCcode: true).
+//       No  → closes dialog, no action.
+//     • Other ALERT types (e.g. invalid policy) surface as actionError — do not
+//       silently fall through to success.
 //
-//   Fix 3 — Graceful exits after action errors:
-//     • actionError state replaces snackbar for error cases.
-//     • On any API error: dialogs are closed and actionError is set.
-//     • While actionError is set: all action buttons are disabled
-//       (anyLoading includes actionError !== null).
-//     • Persistent inline Alert shows the error with two options:
-//         "Dismiss"              — clears actionError, re-enables buttons.
-//         "Return to Dashboard"  — calls onNavigateBack (new prop).
-//     • Snackbar is now success-only.
+//   submitUpdateCcode(forceCcode: boolean):
+//     • Extracted from handleUpdateCcodeClick so the same API call can be
+//       re-issued by both dialog confirmations with forceCcode: true.
 //
-// isPended flow (unchanged):
-//   pendedClaim 'N' → false → Pend Claim enabled, Pend Notes disabled.
-//   API success     → true  → Pend Claim disabled, Pend Notes enabled.
+//   Dialog state reset on claim change:
+//     • mrMatchDialogOpen and invalidCcodeDialog are reset in the same
+//       prevClaimNumber guard that resets isPended — prevents stale dialogs
+//       appearing on queue advance.
+//
+// All other logic is unchanged from the previous iteration.
 
 import { useState } from 'react';
 import { Alert, Box, Button, Snackbar } from '@mui/material';
+import { MrMatchTypeDialog, InvalidCcodeDialog } from './UpdateCcodeDialogs';
 import Collapsible from './shared/Collapsible';
 import ClaimInfoGrid from './ClaimInfoGrid';
 import ClaimActionBar from './ClaimActionBar';
@@ -48,27 +50,29 @@ interface Props {
   ) => void;
   /**
    * CCode selected in a MFE panel.
-   * Two roles:
-   *   1. Forwarded to ClaimInfoGrid → "Client Code" field updates live.
-   *   2. Used as the ccode payload in the Update CCode POST.
-   *      Falls back to claim.ccode when absent.
+   * Forwarded to ClaimInfoGrid (live "Client Code" display) and used as the
+   * ccode payload in the Update CCode POST. Falls back to claim.ccode.
    */
   readonly selectedCcode?: string;
   /**
-   * [Fix 1] eligMemberId from Member Search MFE (MemberRecord.id as Number).
-   * Sent as UpdateCcodeRequest.eligMemberId. Defaults to 0 when no member
-   * has been selected in the panel.
+   * eligMemberId from Member Search MFE (MemberRecord.id as Number).
+   * Sent as UpdateCcodeRequest.eligMemberId. Defaults to 0 when absent.
    */
   readonly selectedEligMemberId?: number;
   /**
-   * [Fix 1] serviceDate from Member Search MFE (MemberRecord.effectiveDate).
-   * Sent as UpdateCcodeRequest.serviceDate.
-   * Falls back to claim.serviceDate when absent.
+   * serviceDate from Member Search MFE (MemberRecord.effectiveDate).
+   * Sent as UpdateCcodeRequest.serviceDate. Falls back to claim.serviceDate.
    */
   readonly selectedMemberServiceDate?: string;
   /**
-   * [Fix 3] Called when the user clicks "Return to Dashboard" in the
-   * post-error Alert. Wired to navigate('/manual-review') by the parent.
+   * matchType of the ClientRecord selected in Employer Group Search.
+   * When 'MR', Dialog 1 (MR Match Type) is shown before the API call.
+   * Sourced from EmployerGroupSearchPanel → ClientManualMatchDashboard.
+   */
+  readonly selectedMatchType?: string;
+  /**
+   * Called when user clicks "Return to Dashboard" in the post-error Alert.
+   * Wired to navigate('/manual-review') by the parent.
    */
   readonly onNavigateBack?: () => void;
   /** Defaults to 'system'. Replace with auth context value when available. */
@@ -77,11 +81,6 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Extracts a user-friendly message from any thrown value.
- * ApiServiceError instances are handled via getErrorMessage; all other
- * thrown values fall back to the provided defaultMessage.
- */
 function resolveErrorMessage(err: unknown, defaultMessage: string): string {
   if (err instanceof ApiServiceError) {
     return getErrorMessage(err);
@@ -97,31 +96,51 @@ export default function ClaimInformationPanel({
   selectedCcode,
   selectedEligMemberId,
   selectedMemberServiceDate,
+  selectedMatchType,
   onNavigateBack,
   userName = 'system',
 }: Props) {
   // ── Pend state ─────────────────────────────────────────────────────────────
-  // prevClaimNumber tracks the last rendered claim so we can detect a claim
-  // change during render (queue advance) and reset isPended synchronously.
-  // This is the React-recommended pattern for resetting state on prop change:
+  // prevClaimNumber detects a claim change during render (queue advance) so
+  // isPended and any open dialogs can be reset synchronously.
+  // React-recommended pattern:
   // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
   const [prevClaimNumber, setPrevClaimNumber] = useState(claim.claimNumber);
   const [isPended, setIsPended] = useState(claim.pendedClaim === 'Y');
 
+  // ── Update CCode dialog state ──────────────────────────────────────────────
+
+  // Dialog 1: MR Match Type — shown BEFORE the API call when the selected
+  // employer group record has matchType 'MR'.
+  const [mrMatchDialogOpen, setMrMatchDialogOpen] = useState(false);
+
+  // Dialog 2: Invalid field — shown AFTER API returns status: 'ALERT' with
+  // parameters.invalid === 'ccode' or 'policy'. Message from the API response.
+  // forceField drives which flag is set to true on confirm.
+  const [invalidCcodeDialog, setInvalidCcodeDialog] = useState<{
+    open: boolean;
+    message: string;
+    forceField: 'ccode' | 'policy';
+  }>({ open: false, message: '', forceField: 'ccode' });
+
+  // Reset all transient dialog and pend state when the claim changes.
+  // Called during render — React will immediately re-render with new state.
   if (prevClaimNumber !== claim.claimNumber) {
     setPrevClaimNumber(claim.claimNumber);
     setIsPended(claim.pendedClaim === 'Y');
+    setMrMatchDialogOpen(false);
+    setInvalidCcodeDialog({ open: false, message: '', forceField: 'ccode' });
   }
 
   // ── Loading ────────────────────────────────────────────────────────────────
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // ── [Fix 3] Action error ───────────────────────────────────────────────────
-  // Set on any API error. While set, all action buttons are disabled and a
-  // persistent Alert is shown with Dismiss / Return to Dashboard options.
+  // ── Action error ───────────────────────────────────────────────────────────
+  // Set on any API error. Disables all action buttons until explicitly dismissed.
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Buttons are disabled during loading OR while an unacknowledged error is shown.
+  // Buttons are disabled during an in-flight action OR while an unacknowledged
+  // error is showing. Dialogs being open does not block buttons — they are modal.
   const anyLoading = actionLoading !== null || actionError !== null;
 
   // ── Snackbar (success only) ────────────────────────────────────────────────
@@ -133,19 +152,30 @@ export default function ClaimInformationPanel({
   const showSuccess = (message: string) => setSnackbar({ open: true, message });
 
   // ── Update CCode ───────────────────────────────────────────────────────────
-  // Fix 1: eligMemberId ← selectedEligMemberId ?? 0
-  //        serviceDate  ← selectedMemberServiceDate || claim.serviceDate
-  const handleUpdateCcodeClick = () => {
-    const ccodeToSubmit = selectedCcode || claim.ccode;
 
+  /**
+   * Core submit function — builds payload and fires the API.
+   *
+   * Called in three ways:
+   *   submitUpdateCcode(false, false)  — normal flow
+   *   submitUpdateCcode(true,  false)  — after Dialog 1 (MR) or Dialog 2 (invalid ccode) confirm
+   *   submitUpdateCcode(false, true)   — after Dialog 2 (invalid policy) confirm
+   *
+   * Result handling:
+   *   type 'success'                             → snackbar + onAction
+   *   type 'alert', invalid === 'ccode'          → show Dialog 2, forceField: 'ccode'
+   *   type 'alert', invalid === 'policy'         → show Dialog 2, forceField: 'policy'
+   *   type 'alert', other invalid field          → surface as actionError (do not swallow)
+   */
+  const submitUpdateCcode = (forceCcode: boolean, forcePolicy: boolean) => {
     setActionLoading('updateCcode');
     claimsApi
       .updateCcode({
-        ccode: ccodeToSubmit,
+        ccode: selectedCcode || claim.ccode,
         policy: claim.policy,
         policyAlias: '',
-        forceCcode: false,
-        forcePolicy: false,
+        forceCcode,
+        forcePolicy,
         serviceDate: selectedMemberServiceDate || claim.serviceDate,
         receiptDate: claim.dateOfReceipt,
         claimNumber: claim.claimNumber,
@@ -155,12 +185,28 @@ export default function ClaimInformationPanel({
         eligMemberId: selectedEligMemberId ?? 0,
         ccodeRecId: 0,
       })
-      .then(() => {
+      .then((result) => {
+        if (result.type === 'alert') {
+          const { invalid } = result.data.parameters;
+          if (invalid === 'ccode' || invalid === 'policy') {
+            setInvalidCcodeDialog({
+              open: true,
+              message: result.data.message,
+              forceField: invalid,
+            });
+          } else {
+            // Unknown ALERT field — surface as error, do not swallow.
+            setActionError(
+              result.data.message ||
+                'CCode update was not accepted. Please try again.'
+            );
+          }
+          return;
+        }
         showSuccess('CCode updated successfully.');
         onAction('updateCCode');
       })
       .catch((err: unknown) =>
-        // Fix 3: set persistent error — do not re-enable buttons automatically.
         setActionError(
           resolveErrorMessage(err, 'Failed to update CCode. Please try again.')
         )
@@ -168,16 +214,26 @@ export default function ClaimInformationPanel({
       .finally(() => setActionLoading(null));
   };
 
+  /**
+   * "Update CCode" button handler.
+   *
+   * Dialog 1 interception: when the employer group record selected by the user
+   * has matchType 'MR', show the enrollment confirmation dialog first.
+   * Normal path: submit directly with both force flags false.
+   */
+  const handleUpdateCcodeClick = () => {
+    if (selectedMatchType === 'MR') {
+      setMrMatchDialogOpen(true);
+      return;
+    }
+    submitUpdateCcode(false, false);
+  };
+
   // ── Pend dialog ────────────────────────────────────────────────────────────
   const [pendOpen, setPendOpen] = useState(false);
   const [pendMode, setPendMode] = useState<PendMode>('pendClaim');
 
-  // Convert pendNotes array<object> → display string for PendDialog upper section.
-  // Each note object has string-keyed string values (per swagger "Additional properties: string").
-  // Object.values joins all values in a note; notes are separated by newlines.
-  // Note: once the exact key names (e.g. date, userName, noteText) are confirmed
-  // from a live response, replace Object.values with explicit key access for
-  // controlled ordering: `${note.date} - ${note.userName}: ${note.noteText}`
+  // pendNotes array<object> → display string for PendDialog upper section.
   const existingNotesDisplay = (claim.pendNotes ?? [])
     .map((note) => Object.values(note).join(' '))
     .join('\n');
@@ -206,7 +262,7 @@ export default function ClaimInformationPanel({
         onAction(pendMode);
       })
       .catch((err: unknown) => {
-        // Fix 3: close dialog so user cannot retry from inside it.
+        // Close dialog so user cannot retry from inside it.
         setPendOpen(false);
         setActionError(
           resolveErrorMessage(err, 'Failed to pend claim. Please try again.')
@@ -231,7 +287,6 @@ export default function ClaimInformationPanel({
         onAction('denyClaim');
       })
       .catch((err: unknown) =>
-        // Fix 3: set persistent error.
         setActionError(
           resolveErrorMessage(err, 'Failed to deny claim. Please try again.')
         )
@@ -244,10 +299,8 @@ export default function ClaimInformationPanel({
     <>
       <Collapsible title='Claim Information' defaultExpanded={true}>
         <Box sx={{ p: 1.5 }}>
-          {/*
-            [Fix 3] Persistent error alert — shown after any action failure.
-            Buttons remain disabled until user explicitly dismisses or exits.
-          */}
+          {/* Persistent error alert — shown after any action failure.
+              All buttons remain disabled until user dismisses or navigates away. */}
           {actionError && (
             <Alert
               severity='error'
@@ -309,6 +362,33 @@ export default function ClaimInformationPanel({
         anyLoading={anyLoading}
         isSubmitting={actionLoading === 'pend'}
         onConfirm={handlePendConfirm}
+      />
+
+      {/* Dialog 1 — MR Match Type
+          Shown before the API call when the selected employer group record
+          has matchType 'MR'. Yes → forceCcode: true. */}
+      <MrMatchTypeDialog
+        open={mrMatchDialogOpen}
+        onClose={() => setMrMatchDialogOpen(false)}
+        onConfirm={() => {
+          setMrMatchDialogOpen(false);
+          submitUpdateCcode(true, false);
+        }}
+      />
+
+      {/* Dialog 2 — Invalid field (ALERT response)
+          Shown after API returns status: 'ALERT' with invalid: 'ccode' or 'policy'.
+          Message text comes from the API response.
+          Yes → re-submit with the relevant force flag set to true. */}
+      <InvalidCcodeDialog
+        open={invalidCcodeDialog.open}
+        message={invalidCcodeDialog.message}
+        onClose={() => setInvalidCcodeDialog((s) => ({ ...s, open: false }))}
+        onConfirm={() => {
+          const { forceField } = invalidCcodeDialog;
+          setInvalidCcodeDialog((s) => ({ ...s, open: false }));
+          submitUpdateCcode(forceField === 'ccode', forceField === 'policy');
+        }}
       />
 
       {/* Success-only snackbar — errors use the persistent Alert above. */}
