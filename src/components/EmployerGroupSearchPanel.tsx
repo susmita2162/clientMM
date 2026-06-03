@@ -37,7 +37,7 @@ const EmployerGroupSearchWidget = lazy(
 // ── Public panel props ────────────────────────────────────────────────────────
 
 export interface EmployerGroupSearchPanelProps {
-  readonly onCcodeSelected?: (ccode: string) => void;
+  readonly onCcodeSelected?: (ccode: string, matchType?: string) => void;
   /** Fields to highlight yellow. Source: scenarioConfig.employerFields */
   readonly fields?: EmployerGroupField[];
   /** Pre-populated claim values — forwarded to EmployerGroupSearchWidget. */
@@ -94,7 +94,13 @@ export default function EmployerGroupSearchPanel({
     (client: ClientRecord) => {
       if (!onCcodeSelected) return;
       const extracted = extractCcode(client);
-      if (extracted) onCcodeSelected(extracted);
+      if (!extracted) return;
+      // matchType is present on ClientRecord from EmployerGroupSearchWidget at runtime.
+      // Cast needed because module-federation.d.ts may not yet declare it explicitly.
+      // If it does, remove the cast and access client.matchType directly.
+      const matchType = (client as ClientRecord & { matchType?: string | null })
+        .matchType;
+      onCcodeSelected(extracted, matchType ?? undefined);
     },
     [onCcodeSelected]
   );
