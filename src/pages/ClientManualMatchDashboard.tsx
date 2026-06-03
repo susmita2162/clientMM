@@ -110,6 +110,7 @@ export default function ClientManualMatchDashboard() {
   const [selectedEligMemberId, setSelectedEligMemberId] = useState<number>(0);
   const [selectedMemberServiceDate, setSelectedMemberServiceDate] =
     useState<string>('');
+  const [selectedMatchType, setSelectedMatchType] = useState('');
 
   const queueContextRef = useRef<QueueContext | null>(null);
   const hasInitialized = useRef(false);
@@ -120,6 +121,7 @@ export default function ClientManualMatchDashboard() {
     setSelectedCcode('');
     setSelectedEligMemberId(0);
     setSelectedMemberServiceDate('');
+    setSelectedMatchType('');
   }, []);
 
   // ── Queue loader ───────────────────────────────────────────────────────────
@@ -376,6 +378,7 @@ export default function ClientManualMatchDashboard() {
           selectedCcode={selectedCcode || undefined}
           selectedEligMemberId={selectedEligMemberId}
           selectedMemberServiceDate={selectedMemberServiceDate}
+          selectedMatchType={selectedMatchType || undefined}
           onNavigateBack={() => void navigate('/manual-review')}
         />
       </Box>
@@ -450,7 +453,10 @@ export default function ClientManualMatchDashboard() {
 
           <AlwaysMountedPanel visible={activeTab === 1}>
             <EmployerGroupSearchPanel
-              onCcodeSelected={setSelectedCcode}
+              onCcodeSelected={(ccode, matchType) => {
+                setSelectedCcode(ccode);
+                setSelectedMatchType(matchType ?? '');
+              }}
               fields={scenarioConfig?.employerFields}
               initialCriteria={egInitialCriteria}
             />
