@@ -307,6 +307,29 @@ export interface ClaimActionResponse {
 }
 
 // ============================================================================
+// UPDATE CCODE RESPONSE — discriminated union
+// The updateCcode endpoint returns HTTP 200 for both success and ALERT cases.
+// ALERT means the ccode is not effective for the date of service.
+// ClaimActionResponse.status is an object; UpdateCcodeAlertResponse.status is
+// the string 'ALERT' — the equality check is unambiguous across both shapes.
+// ============================================================================
+
+export interface UpdateCcodeAlertResponse {
+  status: 'ALERT';
+  message: string;
+  parameters: {
+    invalid: string; // 'ccode' when the ccode check fails
+    forceCcode: boolean;
+    forcePolicy: boolean;
+  };
+  errors: Record<string, unknown>;
+}
+
+export type UpdateCcodeResult =
+  | { type: 'success'; data: ClaimActionResponse }
+  | { type: 'alert'; data: UpdateCcodeAlertResponse };
+
+// ============================================================================
 // DENIAL REASONS
 // ============================================================================
 
