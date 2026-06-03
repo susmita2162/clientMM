@@ -29,6 +29,8 @@ import {
   type PendClaimRequest,
   type ResetSearchRequest,
   type UpdateCcodeRequest,
+  type UpdateCcodeAlertResponse,
+  type UpdateCcodeResult,
 } from '../types/claims';
 import { ApiServiceError } from '../types/errorTypes';
 import { extractError, handleError } from '../utils/errorUtils';
@@ -406,8 +408,16 @@ export const claimsApi = {
   /**
    * Update CCode.
    * POST /api/client-match/claim-match-action/claim/updateCcode  →  claim-match
+   *
+   * Returns a discriminated union — callers must branch on result.type:
+   *   'success' → proceed normally.
+   *   'alert'   → inspect result.data.parameters.invalid for the rejected field.
+   *
+   * ALERT responses come back as HTTP 200 (not an error status), so !response.ok
+   * does not catch them. Discriminator: body.status === 'ALERT' (string) vs
+   * ClaimActionResponse.status (object) — check is unambiguous.
    */
-  async updateCcode(params: UpdateCcodeRequest): Promise<ClaimActionResponse> {
+  async updateCcode(params: UpdateCcodeRequest): Promise<UpdateCcodeResult> {
     try {
       const response = await fetchWithTimeout(buildUrl(PATHS.updateCcode), {
         method: 'POST',
@@ -415,7 +425,12 @@ export const claimsApi = {
         body: JSON.stringify(params),
       });
       if (!response.ok) throw new ApiServiceError(await extractError(response));
-      return (await response.json()) as ClaimActionResponse;
+      const raw = await response.json();
+      const status = (raw as { status?: unknown }).status;
+      if (status === 'ALERT') {
+        return { type: 'alert', data: raw as UpdateCcodeAlertResponse };
+      }
+      return { type: 'success', data: raw as ClaimActionResponse };
     } catch (error) {
       throw handleError(error);
     }
