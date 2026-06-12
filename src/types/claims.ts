@@ -153,6 +153,31 @@ export interface HaltedClaimApiResponse {
   additionalInfo?: {
     info?: HaltedClaimApiInfoItem[];
   } | null;
+
+  /**
+   * nextHalted wraps all claim fields inside claimInfo{}.
+   * findByClaimId / findByClientClaimId return the same fields flat at root.
+   * adaptHaltedClaimResponse normalises both shapes — components see HaltedClaim only.
+   */
+  claimInfo?: {
+    userPend?: string | null;
+    pendNotes?: HaltedClaimApiPendNote[] | null;
+    clientClaimNumber?: string | null;
+    clientReceivedDate?: string | null;
+    claimType?: string | null;
+    claimNumber?: number | string | null;
+    claimOrigin?: string | null;
+    receivedDate?: string | null;
+    clientCode?: string | null;
+    insured?: HaltedClaimApiInsured | null;
+    patient?: HaltedClaimApiPatient | null;
+    employer?: HaltedClaimApiEmployer | null;
+    payor?: string | null;
+    lineOfBusiness?: string | null;
+    additionalInfo?: {
+      info?: HaltedClaimApiInfoItem[];
+    } | null;
+  } | null;
 }
 
 // ── Keep FindByClaimIdLiveResponse as an alias so claimsApi.ts import compiles

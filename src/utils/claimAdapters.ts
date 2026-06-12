@@ -20,10 +20,13 @@ import type { HaltedClaim, HaltedClaimApiResponse } from '../types/claims';
  * Extracts a named value from additionalInfo.info[].
  * Returns empty string when absent — safe for all string fields.
  */
-function getInfoValue(response: HaltedClaimApiResponse, name: string): string {
-  return (
-    response.additionalInfo?.info?.find((i) => i.name === name)?.value ?? ''
-  );
+function getInfoValue(
+  data:
+    | HaltedClaimApiResponse
+    | NonNullable<HaltedClaimApiResponse['claimInfo']>,
+  name: string
+): string {
+  return data.additionalInfo?.info?.find((i) => i.name === name)?.value ?? '';
 }
 
 /**
@@ -68,8 +71,13 @@ function buildAddress(
 export function adaptHaltedClaimResponse(
   response: HaltedClaimApiResponse
 ): HaltedClaim {
-  const insured = response.insured;
-  const patient = response.patient;
+  // nextHalted wraps all claim fields under claimInfo{}.
+  // findByClaimId / findByClientClaimId return the same fields flat at root.
+  // Normalise here so the rest of the function reads from one shape only.
+  const data = response.claimInfo ?? response;
+
+  const insured = data.insured;
+  const patient = data.patient;
 
   // ── Patient personal info — insured fields are fallbacks only ───────────────
   const firstName = patient?.firstName ?? insured?.firstName ?? '';
@@ -83,25 +91,25 @@ export function adaptHaltedClaimResponse(
     buildAddress(patient?.address) || buildAddress(insured?.address);
   // ────────────────────────────────────────────────────────────────────────────
 
-  const scenario = getInfoValue(response, 'scenario');
-  const matchType = getInfoValue(response, 'matchType') || 'HALT';
+  const scenario = getInfoValue(data, 'scenario');
+  const matchType = getInfoValue(data, 'matchType') || 'HALT';
 
-  const userPend = response.userPend ?? 'N';
+  const userPend = data.userPend ?? 'N';
   const category: HaltedClaim['category'] =
     userPend === 'Y' ? 'MANUAL_REVIEW_PENDED' : 'MANUAL_REVIEW';
 
   // claimNumber: root field takes priority; header envelope is the fallback
   // for nextHalted responses where claimNumber may live in header only.
   const claimNumber = String(
-    response.claimNumber ?? response.header?.claimNumber ?? ''
+    data.claimNumber ?? response.header?.claimNumber ?? ''
   );
 
   return {
     claimNumber,
-    clientClaimId: response.clientClaimNumber ?? '',
-    claimStream: response.lineOfBusiness ?? '',
-    claimType: (response.claimType ?? 'H') === 'U' ? 'U' : 'H',
-    dateOfReceipt: response.clientReceivedDate ?? response.receivedDate ?? '',
+    clientClaimId: data.clientClaimNumber ?? '',
+    claimStream: data.lineOfBusiness ?? '',
+    claimType: (data.claimType ?? 'H') === 'U' ? 'U' : 'H',
+    dateOfReceipt: data.clientReceivedDate ?? data.receivedDate ?? '',
 
     // Not provided by backend — defaulted to '' intentionally.
     serviceDate: '',
@@ -110,11 +118,11 @@ export function adaptHaltedClaimResponse(
 
     // insuredId is an identifier — always from insured, not patient.
     insuredId: insured?.insuredID ?? '',
-    ccode: response.clientCode ?? '',
-    group: response.employer?.employerGroupName ?? '',
+    ccode: data.clientCode ?? '',
+    group: data.employer?.employerGroupName ?? '',
     // payor is a plain string on all three responses (not a payer object).
-    payer: response.payor ?? '',
-    network: response.lineOfBusiness ?? '',
+    payer: data.payor ?? '',
+    network: data.lineOfBusiness ?? '',
 
     // Patient personal info
     name,
@@ -131,7 +139,7 @@ export function adaptHaltedClaimResponse(
     lockedBy: null,
     lockedAt: null,
     pendedClaim: userPend,
-    pendNotes: response.pendNotes ?? [],
+    pendNotes: data.pendNotes ?? [],
     scenario,
     matchType,
   };
