@@ -4,7 +4,7 @@
 // CHANGES (this iteration):
 //
 //   pendNotes display — new nested shape:
-//     nextHalted now returns pendNotes as NextHaltedPendNote[] (structured objects
+//     nextHalted now returns pendNotes as HaltedClaimApiPendNote[] (structured objects
 //     with noteText, creationDate, createdBy, modificationDate, modifiedBy).
 //     existingNotesDisplay now extracts noteText and formats each note as a
 //     readable entry instead of joining all Object.values together.
@@ -23,7 +23,7 @@ import ClaimActionBar from './ClaimActionBar';
 import PendDialog, { type PendMode } from './PendDialog';
 import { claimsApi } from '../services/claimsApi';
 import { ApiServiceError, getErrorMessage } from '../types/errorTypes';
-import type { HaltedClaim, NextHaltedPendNote } from '../types/claims';
+import type { HaltedClaim, HaltedClaimApiPendNote } from '../types/claims';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -74,24 +74,24 @@ const resolveErrorMessage = (err: unknown, defaultMessage: string): string => {
 
 /**
  * Type guard — returns true when the note is the new structured shape
- * (NextHaltedPendNote) returned by the updated nextHalted API.
+ * (HaltedClaimApiPendNote) returned by the updated nextHalted API.
  */
 const isStructuredNote = (
-  note: NextHaltedPendNote | Record<string, string>
-): note is NextHaltedPendNote => {
+  note: HaltedClaimApiPendNote | Record<string, string>
+): note is HaltedClaimApiPendNote => {
   return 'noteText' in note;
 };
 
 /**
  * Formats pendNotes for display in the PendDialog read-only upper section.
  *
- * New nextHalted shape:  NextHaltedPendNote[] → "noteText  (creationDate, createdBy)"
+ * New nextHalted shape:  HaltedClaimApiPendNote[] → "noteText  (creationDate, createdBy)"
  * Legacy findByClaimId:  Record<string,string>[] → all values joined (unchanged behaviour)
  *
  * Returns an empty string when there are no notes.
  */
 const formatPendNotes = (
-  notes: NextHaltedPendNote[] | Record<string, string>[] | undefined
+  notes: HaltedClaimApiPendNote[] | Record<string, string>[] | undefined
 ): string => {
   if (!notes || notes.length === 0) return '';
 
@@ -256,7 +256,7 @@ export default function ClaimInformationPanel({
   const [pendMode, setPendMode] = useState<PendMode>('pendClaim');
 
   // Format pendNotes for the PendDialog read-only upper section.
-  // Handles both new structured shape (NextHaltedPendNote[]) and
+  // Handles both new structured shape (HaltedClaimApiPendNote[]) and
   // legacy Record<string,string>[] from findByClaimId — no regression.
   const existingNotesDisplay = formatPendNotes(claim.pendNotes);
 

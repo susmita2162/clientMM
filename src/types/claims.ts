@@ -23,7 +23,7 @@ export interface ClaimsResponse {
 }
 
 // ============================================================================
-// NEXT HALTED CLAIM
+// NEXT HALTED CLAIM REQUEST
 // POST /api/client-match/claim-match-action/nextHalted
 // ============================================================================
 
@@ -35,114 +35,31 @@ export interface NextHaltedClaimRequest {
   claimType: string;
 }
 
-// ── New nested response shape ─────────────────────────────────────────────────
-// As of the updated API the response is no longer flat.
-// claimInfo contains all claim/patient/insured data.
-// additionalInfo.info[] carries scenario, matchType, reasonCode, etc.
-// userPend replaces pendedClaim; pendNotes replaces the top-level array.
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface NextHaltedPendNote {
-  noteText: string;
-  creationDate: string;
-  createdBy: string;
-  modificationDate: string | null;
-  modifiedBy: string | null;
-}
-
-export interface NextHaltedInsured {
-  insuredID: string | null;
-  lastName: string | null;
-  firstName: string | null;
-  middleName: string | null;
-  dateOfBirth: string | null;
-  relationToPatient: string | null;
-  address: {
-    street1: string | null;
-    street2: string | null;
-    city: string | null;
-    state: string | null;
-    zip: string | null;
-  } | null;
-  gender: string | null;
-}
-
-export interface NextHaltedPatient {
-  patientID: string | null;
-  lastName: string | null;
-  firstName: string | null;
-  middleName: string | null;
-  dateOfBirth: string | null;
-  gender: string | null;
-  address: {
-    street1: string | null;
-    street2: string | null;
-    city: string | null;
-    state: string | null;
-    zip: string | null;
-  } | null;
-}
-
-export interface NextHaltedEmployer {
-  employerGroupName: string | null;
-  employerGroupNumber: string | null;
-}
-
-export interface NextHaltedInfoItem {
-  name: string;
-  value: string;
-}
-
-export interface NextHaltedClaimInfo {
-  userPend: string | null; // 'Y' | 'N'
-  pendNotes: NextHaltedPendNote[] | null;
-  clientClaimNumber: string | null;
-  clientReceivedDate: string | null;
-  claimType: string | null; // 'H' | 'U'
-  claimNumber: number | string | null;
-  claimOrigin: string | null;
-  receivedDate: string | null;
-  clientCode: string | null;
-  insured: NextHaltedInsured | null;
-  patient: NextHaltedPatient | null;
-  employer: NextHaltedEmployer | null;
-  payor: string | null;
-  lineOfBusiness: string | null;
-  additionalInfo: {
-    info: NextHaltedInfoItem[];
-  } | null;
-}
-
-/**
- * New nested response shape returned by
- * POST /api/client-match/claim-match-action/nextHalted
- *
- * header.claimNumber — the EDP claim number returned in the envelope.
- * status.statusCode  — 'C' = success.
- * claimType          — top-level mirror of claimInfo.claimType.
- * claimInfo          — all claim data; replaces the previous flat fields.
- */
-export interface NextHaltedClaimResponse {
-  header: {
-    claimNumber: string;
-  };
-  status: {
-    statusCode: string;
-    description: string;
-    receivedTime: string;
-    responseTime: string;
-  };
-  claimType: string | null;
-  claimInfo: NextHaltedClaimInfo;
-}
-
 // ============================================================================
-// FIND BY CLAIM ID — LIVE RESPONSE
-// GET /api/clientMatch/claim/findByClaimId/:id
-// GET /api/clientMatch/claim/findByClientClaimId/:id
+// SHARED HALTED CLAIM API RESPONSE
+//
+// All three endpoints now return the same flat shape:
+//   POST /api/client-match/claim-match-action/nextHalted
+//   GET  /api/clientMatch/claim/findByClaimId/:id
+//   GET  /api/clientMatch/claim/findByClientClaimId/:id
+//
+// Field notes:
+//   payor            — plain string (not a payer object)
+//   userPend         — 'Y' | 'N' pend indicator
+//   pendNotes[]      — structured historical notes
+//   header           — envelope present on nextHalted only; optional here so
+//                      the same type covers all three responses without casting
+//   status           — envelope present on nextHalted only; optional for same reason
+//   claimType        — 'H' (HCFA) | 'U' (UB)
+//   additionalInfo   — name/value pairs: scenario, matchType, reasonCode, etc.
+//
+// Fields NOT provided by backend (kept as optional so adapters can default them):
+//   dateOfService / serviceDate — not in any current response
+//   policyNum / policy          — not in any current response
+//   sender                      — not in any current response
 // ============================================================================
 
-export interface FindByClaimIdAddress {
+export interface HaltedClaimApiAddress {
   street1?: string | null;
   street2?: string | null;
   city?: string | null;
@@ -150,100 +67,113 @@ export interface FindByClaimIdAddress {
   zip?: string | null;
 }
 
-export interface FindByClaimIdInsured {
+export interface HaltedClaimApiInsured {
   insuredID?: string | null;
   lastName?: string | null;
   firstName?: string | null;
   middleName?: string | null;
   dateOfBirth?: string | null;
   relationToPatient?: string | null;
-  address?: FindByClaimIdAddress | null;
+  address?: HaltedClaimApiAddress | null;
   gender?: string | null;
 }
 
-export interface FindByClaimIdPatient {
+export interface HaltedClaimApiPatient {
   patientID?: string | null;
   lastName?: string | null;
   firstName?: string | null;
   middleName?: string | null;
   dateOfBirth?: string | null;
   gender?: string | null;
-  address?: FindByClaimIdAddress | null;
+  address?: HaltedClaimApiAddress | null;
 }
 
-export interface FindByClaimIdEmployer {
+export interface HaltedClaimApiEmployer {
   employerGroupName?: string | null;
   employerGroupNumber?: string | null;
 }
 
-export interface FindByClaimIdPayer {
-  payerId?: string | null;
-  payerName?: string | null;
-  payerLocation?: string | null;
-  address?: FindByClaimIdAddress | null;
-}
-
-/** One entry in additionalInfo.info[] — scenario, matchType, reasonCode etc. */
-export interface FindByClaimIdInfoItem {
+export interface HaltedClaimApiInfoItem {
   name: string;
   value: string;
 }
 
-export interface FindByClaimIdAdditionalInfo {
-  info?: FindByClaimIdInfoItem[];
-}
-
-export interface FindByClaimIdLineItem {
-  serviceFromDate?: string | null;
-  serviceToDate?: string | null;
-}
-
-export interface FindByClaimIdLineGroup {
-  line?: FindByClaimIdLineItem[];
+export interface HaltedClaimApiPendNote {
+  noteText: string;
+  creationDate: string;
+  createdBy: string;
+  modificationDate?: string | null;
+  modifiedBy?: string | null;
 }
 
 /**
- * Complete live response shape from swagger.
- * claimType: "H" = HCFA, "U" = UB — stored as-is in HaltedClaim.claimType.
- * claimNumber: int64 from live API.
- * clientCode: maps to ccode in HaltedClaim.
- * additionalInfo.info[] contains scenario, matchType, reasonCode, stc0101, etc.
+ * Unified flat response shape shared by all three halted-claim endpoints.
+ *
+ * nextHalted also returns a `header` and `status` envelope — those fields
+ * are optional here so the same type covers findByClaimId responses too.
  */
-export interface FindByClaimIdLiveResponse {
+export interface HaltedClaimApiResponse {
+  // ── Envelope (nextHalted only) ──────────────────────────────────────────────
+  header?: {
+    claimNumber?: string | null;
+  } | null;
+  status?: {
+    statusCode?: string | null;
+    description?: string | null;
+    receivedTime?: string | null;
+    responseTime?: string | null;
+  } | null;
+
+  // ── Claim identifiers ───────────────────────────────────────────────────────
+  claimType?: string | null; // 'H' | 'U'
+  claimNumber?: number | string | null;
   clientClaimNumber?: string | null;
-  clientReceivedDate?: string | null; // date-time
-  claimType?: string | null; // "H" | "U"
-  claimNumber?: number | string | null; // int64
-  claimOrigin?: string | null;
+  clientReceivedDate?: string | null;
   receivedDate?: string | null;
+  claimOrigin?: string | null;
+
+  // ── Pend ────────────────────────────────────────────────────────────────────
+  userPend?: string | null; // 'Y' | 'N'
+  pendNotes?: HaltedClaimApiPendNote[] | null;
+
+  // ── Client / policy ─────────────────────────────────────────────────────────
   clientCode?: string | null; // maps to ccode in HaltedClaim
-  lines?: FindByClaimIdLineGroup | null;
-  insured?: FindByClaimIdInsured | null;
-  patient?: FindByClaimIdPatient | null;
-  employer?: FindByClaimIdEmployer | null;
-  payer?: FindByClaimIdPayer | null;
+
+  // ── Sub-objects ─────────────────────────────────────────────────────────────
+  insured?: HaltedClaimApiInsured | null;
+  patient?: HaltedClaimApiPatient | null;
+  employer?: HaltedClaimApiEmployer | null;
+
+  // ── Payer / network ─────────────────────────────────────────────────────────
+  /** Plain string — not a payer object. */
+  payor?: string | null;
   lineOfBusiness?: string | null;
-  additionalInfo?: FindByClaimIdAdditionalInfo | null;
-  /** Pend indicator — 'Y' | 'N'. Maps to HaltedClaim.pendedClaim. */
-  userPend?: string | null;
-  /** Historical pend notes. Array of string-keyed objects per swagger schema. */
-  pendNotes?: Record<string, string>[] | null;
+
+  // ── Additional info ─────────────────────────────────────────────────────────
+  additionalInfo?: {
+    info?: HaltedClaimApiInfoItem[];
+  } | null;
 }
+
+// ── Keep FindByClaimIdLiveResponse as an alias so claimsApi.ts import compiles
+//    without a separate change to that file's import list.
+/** @deprecated Use HaltedClaimApiResponse. Alias kept for claimsApi.ts compatibility. */
+export type FindByClaimIdLiveResponse = HaltedClaimApiResponse;
+
+/** @deprecated Use HaltedClaimApiResponse. Alias kept for claimsApi.ts compatibility. */
+export type NextHaltedClaimResponse = HaltedClaimApiResponse;
 
 // ============================================================================
 // HALTED CLAIM — INTERNAL FLAT SHAPE
-// Adapted from NextHaltedClaimResponse and FindByClaimIdLiveResponse.
 //
-// claimType: 'H' | 'U' — API values, used directly in action payloads.
-//   'H' = HCFA, 'U' = UB.
-//   Both adapters (adaptNextHaltedToHaltedClaim, adaptFindByClaimIdResponse)
-//   store the raw API value — no conversion. ClaimInfoGrid renders it as-is.
+// Adapted from HaltedClaimApiResponse by adaptHaltedClaimResponse().
 //
-// Personal info fields (name, firstName, lastName, dateOfBirth, gender,
-// address) are sourced from the patient object in both adapters.
-// insured fields serve as fallbacks for subscriber-is-patient scenarios.
-// insuredId always comes from the insured object — it is an identifier,
-// not personal information.
+// claimType: 'H' | 'U' — stored as-is; used in action payloads without conversion.
+// Personal info (name, DOB, gender, address) — patient first, insured fallback.
+// insuredId — always from insured.insuredID (identifier, not personal info).
+//
+// Fields with no backend source default to '':
+//   serviceDate, policy, sender
 // ============================================================================
 
 export interface HaltedClaim {
@@ -253,12 +183,15 @@ export interface HaltedClaim {
   /** API value: 'H' (HCFA) or 'U' (UB). Used as-is in action payloads. */
   claimType: 'H' | 'U';
   dateOfReceipt: string;
+  /** Not provided by backend — always ''. Kept for MFE criteria shape compat. */
   serviceDate: string;
+  /** Not provided by backend — always ''. Kept for MFE criteria shape compat. */
   policy: string;
   insuredId: string;
   ccode: string;
   group: string;
   payer: string;
+  /** Not provided by backend — always ''. */
   sender: string;
   network: string;
   name: string;
@@ -274,12 +207,8 @@ export interface HaltedClaim {
   lockedAt: string | null;
   /** 'Y' = already pended, 'N' = not yet pended. Drives button state. */
   pendedClaim?: string;
-  /**
-   * Historical pend notes from API response. Displayed in PendDialog upper section.
-   * NextHaltedPendNote[] from nextHalted; Record<string,string>[] from findByClaimId.
-   * PendDialog accepts string for display — ClaimInformationPanel formats before passing.
-   */
-  pendNotes?: NextHaltedPendNote[] | Record<string, string>[];
+  /** Historical pend notes. Displayed in PendDialog upper section. */
+  pendNotes?: HaltedClaimApiPendNote[];
   /** Scenario code (e.g. "INSID LN3"). Drives MFE field highlighting. */
   scenario?: string;
   /** Always 'HALT' for halted claims. */
@@ -355,17 +284,13 @@ export interface ClaimActionResponse {
 
 // ============================================================================
 // UPDATE CCODE RESPONSE — discriminated union
-// The updateCcode endpoint returns HTTP 200 for both success and ALERT cases.
-// ALERT means the ccode is not effective for the date of service.
-// ClaimActionResponse.status is an object; UpdateCcodeAlertResponse.status is
-// the string 'ALERT' — the equality check is unambiguous across both shapes.
 // ============================================================================
 
 export interface UpdateCcodeAlertResponse {
   status: 'ALERT';
   message: string;
   parameters: {
-    invalid: string; // 'ccode' when the ccode check fails
+    invalid: string;
     forceCcode: boolean;
     forcePolicy: boolean;
   };
@@ -380,16 +305,6 @@ export type UpdateCcodeResult =
 // DENIAL REASONS
 // ============================================================================
 
-/**
- * Denial reason for UI consumption.
- *
- * Live API (GET /api/client-match/claim-match-action/denial-reasons) returns
- * a plain string[] e.g. ["Insufficient patient data to reprice.", ...].
- * claimsApi.getDenialReasons() normalizes that to { value, label } so the
- * UI dropdown contract does not change.
- *
- * Mock route mirrors the same normalization — returns plain string[].
- */
 export interface DenialReason {
   value: string;
   label: string;
@@ -416,10 +331,6 @@ export interface MemberSearchResult {
   effectiveDate: string;
   terminationDate?: string | null;
 }
-
-// ============================================================================
-// EMPLOYER GROUP SEARCH TYPES
-// ============================================================================
 
 export interface EmployerGroupSearchParams {
   insuredId: string;

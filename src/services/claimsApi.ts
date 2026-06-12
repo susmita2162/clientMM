@@ -22,10 +22,8 @@ import {
   type ClaimSearchResult,
   type DenialReason,
   type DenyDecisionRequest,
-  type FindByClaimIdLiveResponse,
-  type HaltedClaim,
+  type HaltedClaimApiResponse,
   type NextHaltedClaimRequest,
-  type NextHaltedClaimResponse,
   type PendClaimRequest,
   type ResetSearchRequest,
   type UpdateCcodeRequest,
@@ -34,6 +32,7 @@ import {
 } from '../types/claims';
 import { ApiServiceError } from '../types/errorTypes';
 import { extractError, handleError } from '../utils/errorUtils';
+import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
 
 // ============================================================================
 // CONFIG
@@ -137,118 +136,6 @@ function fetchWithTimeout(
 }
 
 // ============================================================================
-// ADAPTER — FindByClaimIdLiveResponse → HaltedClaim
-//
-//   HaltedClaim field   ← live source
-//   ─────────────────────────────────────────────────────────────────────────
-//   claimNumber         ← live.claimNumber (int64 → string)
-//   clientClaimId       ← live.clientClaimNumber
-//   claimStream         ← live.lineOfBusiness
-//   claimType           ← live.claimType — stored as-is ('H' | 'U').
-//                         No conversion — matches nextHalted API contract.
-//   dateOfReceipt       ← live.clientReceivedDate ?? live.receivedDate
-//   serviceDate         ← live.lines.line[0].serviceFromDate
-//   insuredId           ← live.insured.insuredID  (identifier, stays on insured)
-//   ccode               ← live.clientCode
-//   group               ← live.employer.employerGroupName
-//   payer               ← live.payer.payerName
-//   name                ← patient.firstName + patient.lastName
-//                         (fallback: insured.firstName + insured.lastName)
-//   firstName           ← patient.firstName (fallback: insured.firstName)
-//   lastName            ← patient.lastName  (fallback: insured.lastName)
-//   dateOfBirth         ← patient.dateOfBirth (fallback: insured.dateOfBirth)
-//   gender              ← patient.gender (fallback: insured.gender)
-//   relationship        ← insured.relationToPatient
-//                         (relationship lives on insured only per schema)
-//   address             ← built from patient.address
-//                         (fallback: insured.address)
-//   scenario            ← additionalInfo.info[scenario]
-//   matchType           ← additionalInfo.info[matchType] ?? 'HALT'
-//   pendedClaim         ← live.userPend ('Y'|'N'). userPend is the pend
-//                         indicator on this endpoint; normalised to the same
-//                         'Y'|'N' contract used by nextHalted (pendedClaim).
-// ============================================================================
-
-function parseAdditionalInfo(
-  live: FindByClaimIdLiveResponse
-): Record<string, string> {
-  const items = live.additionalInfo?.info ?? [];
-  return Object.fromEntries(items.map((i) => [i.name, i.value]));
-}
-
-/**
- * Builds a display address string from the patient address, falling back to
- * the insured address when the patient address is absent.
- */
-function buildAddressString(live: FindByClaimIdLiveResponse): string {
-  // Patient address takes priority per business requirement.
-  // Fall back to insured address when patient address is absent.
-  const a = live.patient?.address;
-  if (!a) return '';
-  const line1 = [a.street1, a.street2].filter(Boolean).join(' ');
-  const line2 = [a.city, a.state, a.zip].filter(Boolean).join(' ');
-  return [line1, line2].filter(Boolean).join(', ');
-}
-
-function adaptFindByClaimIdResponse(
-  live: FindByClaimIdLiveResponse
-): HaltedClaim {
-  const info = parseAdditionalInfo(live);
-  const patient = live.patient ?? {};
-  const insured = live.insured ?? {};
-
-  // Patient fields take priority; insured fields are the fallback for
-  // subscriber-is-patient scenarios where patient fields are absent.
-  const firstName = patient.firstName ?? '';
-  const lastName = patient.lastName ?? '';
-  const middleName = patient.middleName ?? '';
-  const name = [firstName, middleName, lastName].filter(Boolean).join(' ');
-
-  const serviceDate = live.lines?.line?.[0]?.serviceFromDate ?? '';
-  const rawCategory = (info.category ?? '').toUpperCase();
-  const category: HaltedClaim['category'] = rawCategory.includes('PENDED')
-    ? 'MANUAL_REVIEW_PENDED'
-    : 'MANUAL_REVIEW';
-
-  return {
-    claimNumber: String(live.claimNumber ?? ''),
-    clientClaimId: live.clientClaimNumber ?? '',
-    claimStream: live.lineOfBusiness ?? '',
-    // Store raw API value ('H' | 'U') — no conversion.
-    // Consistent with adaptNextHaltedToHaltedClaim and action payload contract.
-    claimType: live.claimType === 'U' ? 'U' : 'H',
-    dateOfReceipt: live.clientReceivedDate ?? live.receivedDate ?? '',
-    serviceDate,
-    policy: '',
-    // insuredId is an identifier — always sourced from insured regardless of
-    // the patient vs. insured personal info requirement.
-    insuredId: insured.insuredID ?? '',
-    ccode: live.clientCode ?? '',
-    group: live.employer?.employerGroupName ?? '',
-    payer: live.payer?.payerName ?? '',
-    sender: '',
-    network: live.lineOfBusiness ?? '',
-    name,
-    firstName,
-    lastName,
-    // middleName,
-    dateOfBirth: patient.dateOfBirth ?? '',
-    gender: patient.gender ?? '',
-    // relationship lives on insured only per the FindByClaimIdLiveResponse schema.
-    relationship: insured.relationToPatient ?? '',
-    address: buildAddressString(live),
-    category,
-    status: 'HALTED',
-    lockedBy: null,
-    lockedAt: null,
-    pendedClaim: live.userPend === 'Y' ? 'Y' : 'N',
-    scenario: info.scenario ?? '',
-    matchType: info.matchType ?? 'HALT',
-    pendNotes: live.pendNotes ?? [],
-  };
-}
-
-// ============================================================================
 // PUBLIC API
 // ============================================================================
 
@@ -292,8 +179,8 @@ export const claimsApi = {
       }
 
       if (!response.ok) throw new ApiServiceError(await extractError(response));
-      const live = (await response.json()) as FindByClaimIdLiveResponse;
-      return { found: true, claim: adaptFindByClaimIdResponse(live) };
+      const live = (await response.json()) as HaltedClaimApiResponse;
+      return { found: true, claim: adaptHaltedClaimResponse(live) };
     } catch (error) {
       throw handleError(error);
     }
@@ -323,8 +210,8 @@ export const claimsApi = {
       }
 
       if (!response.ok) throw new ApiServiceError(await extractError(response));
-      const live = (await response.json()) as FindByClaimIdLiveResponse;
-      return { found: true, claim: adaptFindByClaimIdResponse(live) };
+      const live = (await response.json()) as HaltedClaimApiResponse;
+      return { found: true, claim: adaptHaltedClaimResponse(live) };
     } catch (error) {
       throw handleError(error);
     }
@@ -351,11 +238,15 @@ export const claimsApi = {
   /**
    * Next halted claim from queue.
    * POST /api/client-match/claim-match-action/nextHalted  →  claim-match
+   *
+   * Returns the same flat HaltedClaimApiResponse shape as findByClaimId.
+   * Caller (ClientManualMatchDashboard) passes result to adaptNextHaltedToHaltedClaim
+   * which is an alias for adaptHaltedClaimResponse.
    * 404 → null (queue empty).
    */
   async getNextHaltedClaim(
     params: NextHaltedClaimRequest
-  ): Promise<NextHaltedClaimResponse | null> {
+  ): Promise<HaltedClaimApiResponse | null> {
     try {
       const response = await fetchWithTimeout(buildUrl(PATHS.nextHalted), {
         method: 'POST',
@@ -364,7 +255,7 @@ export const claimsApi = {
       });
       if (response.status === 404) return null;
       if (!response.ok) throw new ApiServiceError(await extractError(response));
-      return (await response.json()) as NextHaltedClaimResponse;
+      return (await response.json()) as HaltedClaimApiResponse;
     } catch (error) {
       throw handleError(error);
     }

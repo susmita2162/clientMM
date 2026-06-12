@@ -1,24 +1,34 @@
 // src/utils/claimAdapters.ts
-import type {
-  HaltedClaim,
-  NextHaltedClaimResponse,
-  NextHaltedClaimInfo,
-} from '../types/claims';
+//
+// Single adapter for all three halted-claim endpoints:
+//   POST /api/client-match/claim-match-action/nextHalted
+//   GET  /api/clientMatch/claim/findByClaimId/:id
+//   GET  /api/clientMatch/claim/findByClientClaimId/:id
+//
+// All three now return the same flat HaltedClaimApiResponse shape.
+//
+// Fields with no backend source:
+//   serviceDate — not in API response → ''
+//   policy      — not in API response → ''
+//   sender      — not in API response → ''
+
+import type { HaltedClaim, HaltedClaimApiResponse } from '../types/claims';
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 /**
- * Extracts a named value from claimInfo.additionalInfo.info[].
- * Returns empty string when not present — safe to use in string fields.
+ * Extracts a named value from additionalInfo.info[].
+ * Returns empty string when absent — safe for all string fields.
  */
-function getInfoValue(claimInfo: NextHaltedClaimInfo, name: string): string {
+function getInfoValue(response: HaltedClaimApiResponse, name: string): string {
   return (
-    claimInfo.additionalInfo?.info?.find((i) => i.name === name)?.value ?? ''
+    response.additionalInfo?.info?.find((i) => i.name === name)?.value ?? ''
   );
 }
 
 /**
- * Builds a display address string from a patient or insured address sub-object.
+ * Builds a display address string from an address sub-object.
+ * Returns empty string when address is absent.
  */
 function buildAddress(
   address:
@@ -40,73 +50,71 @@ function buildAddress(
   return [line1, line2].filter(Boolean).join(', ');
 }
 
-// ── adaptNextHaltedToHaltedClaim ──────────────────────────────────────────────
+// ── adaptHaltedClaimResponse ──────────────────────────────────────────────────
 
 /**
- * Adapts the NEW nested nextHalted API response → HaltedClaim.
+ * Adapts HaltedClaimApiResponse → HaltedClaim.
  *
- * Response shape (post-update):
- *   response.header.claimNumber  — EDP claim number
- *   response.claimType           — top-level mirror
- *   response.claimInfo           — all claim/patient/insured/employer data
- *     .userPend                  — 'Y' | 'N' (was: top-level pendedClaim)
- *     .pendNotes[]               — structured notes (noteText, creationDate…)
- *     .insured                   — insuredID, address, gender, relationToPatient
- *     .patient                   — patient personal info (priority over insured)
- *     .employer                  — employerGroupName, employerGroupNumber
- *     .payor                     — payer name string (not an object)
- *     .lineOfBusiness            — maps to claimStream / network
- *     .additionalInfo.info[]     — name/value pairs: scenario, matchType, etc.
+ * Field priority rules:
+ *   Personal info (name, DOB, gender, address) — patient first, insured fallback.
+ *   insuredId — always from insured.insuredID (identifier, not personal info).
  *
- * Field priority rules (unchanged from previous adapter):
- *   - Personal info (name, DOB, gender, address) → patient first, insured fallback.
- *   - insuredId → always from insured.insuredID (identifier, not personal info).
+ * Fields not provided by the backend default to '':
+ *   serviceDate, policy, sender
+ *
+ * claimNumber: prefers response.claimNumber; falls back to header.claimNumber
+ *   (nextHalted envelope) when claimNumber is absent.
  */
-export function adaptNextHaltedToHaltedClaim(
-  response: NextHaltedClaimResponse
+export function adaptHaltedClaimResponse(
+  response: HaltedClaimApiResponse
 ): HaltedClaim {
-  const ci = response.claimInfo;
-  const insured = ci.insured ?? {};
-  const patient = ci.patient ?? {};
+  const insured = response.insured;
+  const patient = response.patient;
 
   // ── Patient personal info — insured fields are fallbacks only ───────────────
-  const firstName = patient.firstName ?? insured.firstName ?? '';
-  const lastName = patient.lastName ?? insured.lastName ?? '';
-  const middleName = patient.middleName ?? insured.middleName ?? '';
+  const firstName = patient?.firstName ?? insured?.firstName ?? '';
+  const lastName = patient?.lastName ?? insured?.lastName ?? '';
+  const middleName = patient?.middleName ?? insured?.middleName ?? '';
   const name = [firstName, middleName, lastName].filter(Boolean).join(' ');
 
-  const dateOfBirth = patient.dateOfBirth ?? insured.dateOfBirth ?? '';
-  const gender = patient.gender ?? insured.gender ?? '';
+  const dateOfBirth = patient?.dateOfBirth ?? insured?.dateOfBirth ?? '';
+  const gender = patient?.gender ?? insured?.gender ?? '';
   const address =
-    buildAddress(patient.address) || buildAddress(insured.address);
+    buildAddress(patient?.address) || buildAddress(insured?.address);
   // ────────────────────────────────────────────────────────────────────────────
 
-  const scenario = getInfoValue(ci, 'scenario');
-  const matchType = getInfoValue(ci, 'matchType') || 'HALT';
+  const scenario = getInfoValue(response, 'scenario');
+  const matchType = getInfoValue(response, 'matchType') || 'HALT';
 
-  // category derives from userPend (new field, replaces top-level pendedClaim).
-  const userPend = ci.userPend ?? 'N';
+  const userPend = response.userPend ?? 'N';
   const category: HaltedClaim['category'] =
     userPend === 'Y' ? 'MANUAL_REVIEW_PENDED' : 'MANUAL_REVIEW';
 
+  // claimNumber: root field takes priority; header envelope is the fallback
+  // for nextHalted responses where claimNumber may live in header only.
+  const claimNumber = String(
+    response.claimNumber ?? response.header?.claimNumber ?? ''
+  );
+
   return {
-    // Claim identifiers — prefer claimInfo fields; fall back to header envelope.
-    claimNumber: String(ci.claimNumber ?? response.header.claimNumber ?? ''),
-    clientClaimId: ci.clientClaimNumber ?? '',
-    claimStream: ci.lineOfBusiness ?? '',
-    claimType: (ci.claimType ?? response.claimType ?? 'H') === 'U' ? 'U' : 'H',
-    dateOfReceipt: ci.clientReceivedDate ?? ci.receivedDate ?? '',
-    // nextHalted response does not carry line-level service dates.
-    serviceDate: r.dateOfService ?? '', // Double check
-    policy: r.policyNum ?? '', // Double check
-    // insuredId is an identifier — always sourced from insured, not patient.
-    insuredId: insured.insuredID ?? '',
-    ccode: ci.clientCode ?? '',
-    group: ci.employer?.employerGroupName ?? '',
-    // payor is a plain string on this response (not a payer object).
-    payer: ci.payor ?? '',
-    sender: ci.sender ?? '', // Double check
-    network: ci.lineOfBusiness ?? '',
+    claimNumber,
+    clientClaimId: response.clientClaimNumber ?? '',
+    claimStream: response.lineOfBusiness ?? '',
+    claimType: (response.claimType ?? 'H') === 'U' ? 'U' : 'H',
+    dateOfReceipt: response.clientReceivedDate ?? response.receivedDate ?? '',
+
+    // Not provided by backend — defaulted to '' intentionally.
+    serviceDate: '',
+    policy: '',
+    sender: '',
+
+    // insuredId is an identifier — always from insured, not patient.
+    insuredId: insured?.insuredID ?? '',
+    ccode: response.clientCode ?? '',
+    group: response.employer?.employerGroupName ?? '',
+    // payor is a plain string on all three responses (not a payer object).
+    payer: response.payor ?? '',
+    network: response.lineOfBusiness ?? '',
 
     // Patient personal info
     name,
@@ -116,14 +124,21 @@ export function adaptNextHaltedToHaltedClaim(
     gender,
     address,
 
-    relationship: insured.relationToPatient ?? '',
+    // relationship lives on insured only per the API schema.
+    relationship: insured?.relationToPatient ?? '',
     category,
     status: 'HALTED',
     lockedBy: null,
     lockedAt: null,
     pendedClaim: userPend,
-    pendNotes: ci.pendNotes ?? [],
+    pendNotes: response.pendNotes ?? [],
     scenario,
     matchType,
   };
 }
+
+/**
+ * Named alias used by ClientManualMatchDashboard (nextHalted queue path).
+ * Both names call the same function — no duplication of logic.
+ */
+export const adaptNextHaltedToHaltedClaim = adaptHaltedClaimResponse;
