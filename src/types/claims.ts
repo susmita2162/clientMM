@@ -35,62 +35,105 @@ export interface NextHaltedClaimRequest {
   claimType: string;
 }
 
+// ── New nested response shape ─────────────────────────────────────────────────
+// As of the updated API the response is no longer flat.
+// claimInfo contains all claim/patient/insured data.
+// additionalInfo.info[] carries scenario, matchType, reasonCode, etc.
+// userPend replaces pendedClaim; pendNotes replaces the top-level array.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface NextHaltedPendNote {
+  noteText: string;
+  creationDate: string;
+  createdBy: string;
+  modificationDate: string | null;
+  modifiedBy: string | null;
+}
+
+export interface NextHaltedInsured {
+  insuredID: string | null;
+  lastName: string | null;
+  firstName: string | null;
+  middleName: string | null;
+  dateOfBirth: string | null;
+  relationToPatient: string | null;
+  address: {
+    street1: string | null;
+    street2: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+  } | null;
+  gender: string | null;
+}
+
+export interface NextHaltedPatient {
+  patientID: string | null;
+  lastName: string | null;
+  firstName: string | null;
+  middleName: string | null;
+  dateOfBirth: string | null;
+  gender: string | null;
+  address: {
+    street1: string | null;
+    street2: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+  } | null;
+}
+
+export interface NextHaltedEmployer {
+  employerGroupName: string | null;
+  employerGroupNumber: string | null;
+}
+
+export interface NextHaltedInfoItem {
+  name: string;
+  value: string;
+}
+
+export interface NextHaltedClaimInfo {
+  userPend: string | null; // 'Y' | 'N'
+  pendNotes: NextHaltedPendNote[] | null;
+  clientClaimNumber: string | null;
+  clientReceivedDate: string | null;
+  claimType: string | null; // 'H' | 'U'
+  claimNumber: number | string | null;
+  claimOrigin: string | null;
+  receivedDate: string | null;
+  clientCode: string | null;
+  insured: NextHaltedInsured | null;
+  patient: NextHaltedPatient | null;
+  employer: NextHaltedEmployer | null;
+  payor: string | null;
+  lineOfBusiness: string | null;
+  additionalInfo: {
+    info: NextHaltedInfoItem[];
+  } | null;
+}
+
 /**
- * Flat response — all top-level, all nullable (live API).
- * matchType is always 'HALT'. scenario drives MFE field highlighting.
- * pendedClaim: 'Y' | 'N' — drives Pend Claim / Pend Notes button state.
+ * New nested response shape returned by
+ * POST /api/client-match/claim-match-action/nextHalted
  *
- * Patient fields (patientFirstName, patientLastName, patientMiddleName,
- * patientFullName, patientGender, patientAddress1, patientCityStateZip)
- * are present in the live API response and are used by
- * adaptNextHaltedToHaltedClaim to populate the ClaimInformationPanel.
- * insured fields remain as fallbacks for subscriber-is-patient scenarios.
+ * header.claimNumber — the EDP claim number returned in the envelope.
+ * status.statusCode  — 'C' = success.
+ * claimType          — top-level mirror of claimInfo.claimType.
+ * claimInfo          — all claim data; replaces the previous flat fields.
  */
 export interface NextHaltedClaimResponse {
-  claimNumber: string;
-  claimId: string;
-  clientClaimId: string;
-  network: string | null;
-  status: string | null;
-  insuredId: string | null;
-  insuredFullName: string | null;
-  insuredFirstName: string | null;
-  insuredLastName: string | null;
-  insuredMiddleName: string | null;
-  insuredGender: string | null;
-  insuredAddress1: string | null;
-  insuredCityStateZip: string | null;
-  insuredDob: string | null;
-  memberDob: string | null;
-  // ── Patient fields — aligned with live API NextHaltedClaimResponse schema ──
-  patientFirstName: string | null;
-  patientLastName: string | null;
-  patientMiddleName: string | null;
-  patientFullName: string | null;
-  patientGender: string | null;
-  patientAddress1: string | null;
-  patientCityStateZip: string | null;
-  // ─────────────────────────────────────────────────────────────────────────
-  payerName: string | null;
-  scenario: string | null;
-  category: string | null;
-  claimType: string | null; // 'H' | 'U' from API
-  claimStream: string | null;
-  relationship: string | null;
-  policyNum: string | null;
-  matchType: string | null; // always 'HALT'
-  pendedClaim: string | null; // 'Y' | 'N'
-  matchActionId: number; // int64
-  message: string | null;
-  ccode: string | null;
-  dateOfService: string | null;
-  receiptDate: string | null;
-  grpName: string | null;
-  sender: string | null;
-  empName: string | null;
-  empGrpPolicyNum: string | null;
-  /** Historical pend notes. Array of string-keyed objects per swagger schema. */
-  pendNotes?: Record<string, string>[] | null;
+  header: {
+    claimNumber: string;
+  };
+  status: {
+    statusCode: string;
+    description: string;
+    receivedTime: string;
+    responseTime: string;
+  };
+  claimType: string | null;
+  claimInfo: NextHaltedClaimInfo;
 }
 
 // ============================================================================
@@ -231,8 +274,12 @@ export interface HaltedClaim {
   lockedAt: string | null;
   /** 'Y' = already pended, 'N' = not yet pended. Drives button state. */
   pendedClaim?: string;
-  /** Historical pend notes from API response. Displayed in PendDialog upper section. */
-  pendNotes?: Record<string, string>[];
+  /**
+   * Historical pend notes from API response. Displayed in PendDialog upper section.
+   * NextHaltedPendNote[] from nextHalted; Record<string,string>[] from findByClaimId.
+   * PendDialog accepts string for display — ClaimInformationPanel formats before passing.
+   */
+  pendNotes?: NextHaltedPendNote[] | Record<string, string>[];
   /** Scenario code (e.g. "INSID LN3"). Drives MFE field highlighting. */
   scenario?: string;
   /** Always 'HALT' for halted claims. */

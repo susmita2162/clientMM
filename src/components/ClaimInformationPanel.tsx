@@ -3,32 +3,16 @@
 //
 // CHANGES (this iteration):
 //
-//   Update CCode — Dialog 1 (MR Match Type):
-//     • New prop: selectedMatchType.
-//     • handleUpdateCcodeClick checks selectedMatchType === 'MR' before firing
-//       the API. If matched, shows mrMatchDialog asking for enrollment confirmation.
-//       Yes → submitUpdateCcode(forceCcode: true).
-//       No  → closes dialog, no action.
+//   pendNotes display — new nested shape:
+//     nextHalted now returns pendNotes as NextHaltedPendNote[] (structured objects
+//     with noteText, creationDate, createdBy, modificationDate, modifiedBy).
+//     existingNotesDisplay now extracts noteText and formats each note as a
+//     readable entry instead of joining all Object.values together.
 //
-//   Update CCode — Dialog 2 (Invalid CCode / ALERT response):
-//     • claimsApi.updateCcode now returns UpdateCcodeResult (discriminated union).
-//     • submitUpdateCcode inspects result.type === 'alert' + parameters.invalid === 'ccode'
-//       and shows invalidCcodeDialog with the API-supplied message.
-//       Yes → submitUpdateCcode(forceCcode: true).
-//       No  → closes dialog, no action.
-//     • Other ALERT types (e.g. invalid policy) surface as actionError — do not
-//       silently fall through to success.
+//     findByClaimId still returns Record<string,string>[] — the formatter handles
+//     both shapes via a type-safe guard, so no regression for that path.
 //
-//   submitUpdateCcode(forceCcode: boolean):
-//     • Extracted from handleUpdateCcodeClick so the same API call can be
-//       re-issued by both dialog confirmations with forceCcode: true.
-//
-//   Dialog state reset on claim change:
-//     • mrMatchDialogOpen and invalidCcodeDialog are reset in the same
-//       prevClaimNumber guard that resets isPended — prevents stale dialogs
-//       appearing on queue advance.
-//
-// All other logic is unchanged from the previous iteration.
+// All other logic is unchanged.
 
 import { useState } from 'react';
 import { Alert, Box, Button, Snackbar } from '@mui/material';
@@ -39,7 +23,7 @@ import ClaimActionBar from './ClaimActionBar';
 import PendDialog, { type PendMode } from './PendDialog';
 import { claimsApi } from '../services/claimsApi';
 import { ApiServiceError, getErrorMessage } from '../types/errorTypes';
-import type { HaltedClaim } from '../types/claims';
+import type { HaltedClaim, NextHaltedPendNote } from '../types/claims';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -81,12 +65,50 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function resolveErrorMessage(err: unknown, defaultMessage: string): string {
+const resolveErrorMessage = (err: unknown, defaultMessage: string): string => {
   if (err instanceof ApiServiceError) {
     return getErrorMessage(err);
   }
   return defaultMessage;
-}
+};
+
+/**
+ * Type guard — returns true when the note is the new structured shape
+ * (NextHaltedPendNote) returned by the updated nextHalted API.
+ */
+const isStructuredNote = (
+  note: NextHaltedPendNote | Record<string, string>
+): note is NextHaltedPendNote => {
+  return 'noteText' in note;
+};
+
+/**
+ * Formats pendNotes for display in the PendDialog read-only upper section.
+ *
+ * New nextHalted shape:  NextHaltedPendNote[] → "noteText  (creationDate, createdBy)"
+ * Legacy findByClaimId:  Record<string,string>[] → all values joined (unchanged behaviour)
+ *
+ * Returns an empty string when there are no notes.
+ */
+const formatPendNotes = (
+  notes: NextHaltedPendNote[] | Record<string, string>[] | undefined
+): string => {
+  if (!notes || notes.length === 0) return '';
+
+  return notes
+    .map((note) => {
+      if (isStructuredNote(note)) {
+        // New shape: surface noteText prominently; append metadata on same line.
+        const meta = [note.creationDate, note.createdBy]
+          .filter(Boolean)
+          .join(', ');
+        return meta ? `${note.noteText}  (${meta})` : note.noteText;
+      }
+      // Legacy shape: join all values as before.
+      return Object.values(note).filter(Boolean).join(' ');
+    })
+    .join('\n');
+};
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -233,10 +255,10 @@ export default function ClaimInformationPanel({
   const [pendOpen, setPendOpen] = useState(false);
   const [pendMode, setPendMode] = useState<PendMode>('pendClaim');
 
-  // pendNotes array<object> → display string for PendDialog upper section.
-  const existingNotesDisplay = (claim.pendNotes ?? [])
-    .map((note) => Object.values(note).join(' '))
-    .join('\n');
+  // Format pendNotes for the PendDialog read-only upper section.
+  // Handles both new structured shape (NextHaltedPendNote[]) and
+  // legacy Record<string,string>[] from findByClaimId — no regression.
+  const existingNotesDisplay = formatPendNotes(claim.pendNotes);
 
   const handlePendClick = (mode: PendMode) => {
     setPendMode(mode);
