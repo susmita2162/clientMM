@@ -316,8 +316,8 @@ export const claimsApi = {
         body: JSON.stringify(params),
       });
       if (!response.ok) throw new ApiServiceError(await extractError(response));
-      const raw = await response.json();
-      const status = (raw as { status?: unknown }).status;
+      const raw: unknown = (await response.json()) as unknown;
+      const status = (raw as Record<string, unknown>).status;
       if (status === 'ALERT') {
         return { type: 'alert', data: raw as UpdateCcodeAlertResponse };
       }
