@@ -5,11 +5,14 @@
 //   isPended === false (pendedClaim "N"): Pend Claim ENABLED, Pend Notes DISABLED
 //   isPended === true  (pendedClaim "Y"): Pend Claim DISABLED, Pend Notes ENABLED
 //
+// This reflects the workflow: a halted claim arrives un-pended; the user
+// pends it first (Pend Claim), after which they can update notes (Pend Notes).
+//
 // Update CCode: always enabled. No hasSelectedCcode gate.
 // Pend Claim:   enabled when isPended=false.
 // Pend Notes:   enabled when isPended=true.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Button,
@@ -21,13 +24,10 @@ import {
   DialogTitle,
   Divider,
   FormControl,
-  IconButton,
   MenuItem,
   Select,
-  Tooltip,
   type SelectChangeEvent,
 } from '@mui/material';
-import ReplayIcon from '@mui/icons-material/Replay';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 import { claimsApi } from '../services/claimsApi';
 import { ApiServiceError, getErrorMessage } from '../types/errorTypes';
@@ -52,9 +52,6 @@ interface Props {
   readonly onDenySubmit: (reason: string) => void;
 }
 
-// Module-level cache — avoids ref access during render entirely.
-const denialReasonSelectionCache = new Map<string, string>();
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ClaimActionBar({
@@ -67,63 +64,52 @@ export default function ClaimActionBar({
   onDenySubmit,
 }: Props) {
   // --------------------------------------------------------------------------
-  // Denial reasons — retryCount re-triggers the effect on user retry.
+  // Denial reasons
   // --------------------------------------------------------------------------
   const [denialReasons, setDenialReasons] = useState<DenialReason[]>([]);
   const [reasonsLoading, setReasonsLoading] = useState(true);
   const [reasonsError, setReasonsError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-
-    const load = async () => {
+    const fetchReasons = async () => {
       setReasonsLoading(true);
       setReasonsError(null);
       try {
         const reasons = await claimsApi.getDenialReasons();
-        if (!cancelled) {
-          setDenialReasons(reasons);
-          setReasonsLoading(false);
-        }
+        if (!cancelled) setDenialReasons(reasons);
       } catch (err: unknown) {
         if (!cancelled) {
-          setReasonsError(
+          const message =
             err instanceof ApiServiceError
               ? getErrorMessage(err)
-              : 'Failed to load denial reasons.'
-          );
-          setReasonsLoading(false);
+              : 'Failed to load denial reasons.';
+          setReasonsError(message);
         }
+      } finally {
+        if (!cancelled) setReasonsLoading(false);
       }
     };
-
-    void load();
-
+    void fetchReasons();
     return () => {
       cancelled = true;
     };
-  }, [retryCount]);
+  }, []);
 
   // --------------------------------------------------------------------------
-  // Denial reason selection — cached per claim number.
-  // prevClaimNumber tracks claim changes (queue advance) to reset selection.
-  // Pattern mirrors ClaimInformationPanel — setState during render, not in effect.
+  // Denial reason selection — cached per claim number
   // --------------------------------------------------------------------------
-  const [prevClaimNumber, setPrevClaimNumber] = useState(claim.claimNumber);
-  const [denialReason, setDenialReason] = useState(
-    denialReasonSelectionCache.get(claim.claimNumber) ?? ''
-  );
+  const selectionCache = useRef<Map<string, string>>(new Map());
+  const [denialReason, setDenialReason] = useState('');
 
-  if (prevClaimNumber !== claim.claimNumber) {
-    setPrevClaimNumber(claim.claimNumber);
-    setDenialReason(denialReasonSelectionCache.get(claim.claimNumber) ?? '');
-  }
+  useEffect(() => {
+    setDenialReason(selectionCache.current.get(claim.claimNumber) ?? '');
+  }, [claim.claimNumber]);
 
   const handleDenialReasonChange = (event: SelectChangeEvent) => {
     const value = event.target.value;
     setDenialReason(value);
-    denialReasonSelectionCache.set(claim.claimNumber, value);
+    selectionCache.current.set(claim.claimNumber, value);
   };
 
   // ── Deny validation dialog ─────────────────────────────────────────────────
@@ -137,7 +123,10 @@ export default function ClaimActionBar({
     onDenySubmit(denialReason);
   };
 
-  // S3358: extracted from nested ternary.
+  // --------------------------------------------------------------------------
+  // S3358 fix — denial reason placeholder label extracted from nested ternary.
+  // Called only when no option is selected (renderValue empty-state branch).
+  // --------------------------------------------------------------------------
   const getEmptySelectionLabel = (): string => {
     if (reasonsLoading) return 'Loading\u2026';
     if (reasonsError) return 'Unavailable';
@@ -165,7 +154,7 @@ export default function ClaimActionBar({
           alignItems: 'center',
         }}
       >
-        {/* Update CCode */}
+        {/* Update CCode — always enabled */}
         <Button
           variant='contained'
           color='primary'
@@ -217,78 +206,59 @@ export default function ClaimActionBar({
           Pend Notes
         </Button>
 
-        {/* Denial Reason dropdown + retry icon on error */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <FormControl
-            size='small'
-            sx={{ minWidth: 160 }}
-            disabled={reasonsLoading || !!reasonsError || anyLoading}
-          >
-            <Select
-              id='denial-reason'
-              value={denialReason}
-              onChange={handleDenialReasonChange}
-              displayEmpty
-              renderValue={(selected: string) => {
-                if (!selected) {
-                  return (
-                    <Box
-                      component='span'
-                      sx={{ color: 'text.secondary', fontStyle: 'italic' }}
-                    >
-                      {getEmptySelectionLabel()}
-                    </Box>
-                  );
-                }
+        {/* Denial Reason dropdown */}
+        <FormControl
+          size='small'
+          sx={{ minWidth: 160 }}
+          disabled={reasonsLoading || !!reasonsError || anyLoading}
+        >
+          <Select
+            id='denial-reason'
+            value={denialReason}
+            onChange={handleDenialReasonChange}
+            displayEmpty
+            renderValue={(selected: string) => {
+              if (!selected) {
+                // S3358: extracted to getEmptySelectionLabel — no nested ternary.
                 return (
-                  denialReasons.find((r) => r.value === selected)?.label ??
-                  selected
+                  <Box
+                    component='span'
+                    sx={{ color: 'text.secondary', fontStyle: 'italic' }}
+                  >
+                    {getEmptySelectionLabel()}
+                  </Box>
                 );
-              }}
-              startAdornment={
-                reasonsLoading ? (
-                  <CircularProgress size={12} sx={{ mr: 0.5, flexShrink: 0 }} />
-                ) : undefined
               }
-              sx={{
-                height: '26px',
-                fontSize: '0.8125rem',
-                '& .MuiSelect-select': {
-                  py: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                },
-              }}
-            >
-              <MenuItem value=''>
-                <em>Select Reason</em>
+              return (
+                denialReasons.find((r) => r.value === selected)?.label ??
+                selected
+              );
+            }}
+            startAdornment={
+              reasonsLoading ? (
+                <CircularProgress size={12} sx={{ mr: 0.5, flexShrink: 0 }} />
+              ) : undefined
+            }
+            sx={{
+              height: '26px',
+              fontSize: '0.8125rem',
+              '& .MuiSelect-select': {
+                py: 0,
+                display: 'flex',
+                alignItems: 'center',
+              },
+            }}
+          >
+            <MenuItem value=''>
+              <em>Select Reason</em>
+            </MenuItem>
+            {denialReasons.map((reason) => (
+              <MenuItem key={reason.value} value={reason.value}>
+                {reason.label}
               </MenuItem>
-              {denialReasons.map((reason) => (
-                <MenuItem key={reason.value} value={reason.value}>
-                  {reason.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          {/* Retry icon — only shown when denial reasons failed to load */}
-          {reasonsError && !reasonsLoading && (
-            <Tooltip title='Retry loading denial reasons' placement='top'>
-              <IconButton
-                size='small'
-                onClick={() => setRetryCount((c) => c + 1)}
-                aria-label='Retry loading denial reasons'
-                sx={{
-                  color: 'error.main',
-                  p: '3px',
-                  '&:hover': { color: 'error.dark' },
-                }}
-              >
-                <ReplayIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
+            ))}
+          </Select>
+        </FormControl>
 
         <Button
           variant='contained'
@@ -307,7 +277,8 @@ export default function ClaimActionBar({
         </Button>
       </Box>
 
-      {/* Deny validation dialog — S1874: slotProps.paper replaces PaperProps (MUI v6) */}
+      {/* Deny validation dialog */}
+      {/* S1874: PaperProps replaced with slotProps.paper (MUI v6) */}
       <Dialog
         open={denyValidationOpen}
         onClose={() => setDenyValidationOpen(false)}
