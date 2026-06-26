@@ -38,25 +38,20 @@ export interface NextHaltedClaimRequest {
 // ============================================================================
 // SHARED HALTED CLAIM API RESPONSE
 //
-// All three endpoints now return the same flat shape:
-//   POST /api/client-match/claim-match-action/nextHalted
-//   GET  /api/clientMatch/claim/findByClaimId/:id
-//   GET  /api/clientMatch/claim/findByClientClaimId/:id
+// All three endpoints return the same envelope + claimInfo shape:
+//   POST /nextHalted                        (claim-match service)
+//   GET  /findByClaimId/{id}               (claim-match service)
+//   GET  /findByClientClaimId/{id}         (claim-match service)
+//
+// All claim fields live inside claimInfo{} on every endpoint.
+// The envelope (header, status, claimType) sits at the root.
 //
 // Field notes:
-//   payor            — plain string (not a payer object)
-//   userPend         — 'Y' | 'N' pend indicator
-//   pendNotes[]      — structured historical notes
-//   header           — envelope present on nextHalted only; optional here so
-//                      the same type covers all three responses without casting
-//   status           — envelope present on nextHalted only; optional for same reason
-//   claimType        — 'H' (HCFA) | 'U' (UB)
-//   additionalInfo   — name/value pairs: scenario, matchType, reasonCode, etc.
-//
-// Fields NOT provided by backend (kept as optional so adapters can default them):
-//   dateOfService / serviceDate — not in any current response
-//   policyNum / policy          — not in any current response
-//   sender                      — not in any current response
+//   payor          — plain string (not an object)
+//   userPend       — 'Y' | 'N' pend indicator
+//   serviceDate    — MM-DD-YYYY (e.g. "06-02-2021"); toIsoDate() converts for MFE
+//   additionalInfo — name/value pairs: scenario, matchType, reasonCode, etc.
+//   policy/sender  — not provided by any endpoint; default to '' in adapter
 // ============================================================================
 
 export interface HaltedClaimApiAddress {
@@ -107,98 +102,58 @@ export interface HaltedClaimApiPendNote {
 }
 
 /**
- * Unified flat response shape shared by all three halted-claim endpoints.
- *
- * nextHalted also returns a `header` and `status` envelope — those fields
- * are optional here so the same type covers findByClaimId responses too.
+ * The claim payload nested under claimInfo{} on all three endpoints.
+ * Extracted as a named interface so HaltedClaimApiResponse references it
+ * directly — no field duplication.
+ */
+export interface HaltedClaimInfo {
+  userPend?: string | null; // 'Y' | 'N'
+  serviceDate?: string | null; // MM-DD-YYYY
+  pendNotes?: HaltedClaimApiPendNote[] | null;
+  clientClaimNumber?: string | null;
+  clientReceivedDate?: string | null;
+  claimType?: string | null; // 'H' | 'U'
+  claimNumber?: number | string | null;
+  claimOrigin?: string | null;
+  receivedDate?: string | null;
+  clientCode?: string | null;
+  insured?: HaltedClaimApiInsured | null;
+  patient?: HaltedClaimApiPatient | null;
+  employer?: HaltedClaimApiEmployer | null;
+  /** Plain string — not a payer object. */
+  payor?: string | null;
+  lineOfBusiness?: string | null;
+  additionalInfo?: { info?: HaltedClaimApiInfoItem[] } | null;
+}
+
+/**
+ * Response envelope shared by all three halted-claim endpoints.
+ * Claim data always lives inside claimInfo — adaptHaltedClaimResponse reads it there.
  */
 export interface HaltedClaimApiResponse {
-  // ── Envelope (nextHalted only) ──────────────────────────────────────────────
-  header?: {
-    claimNumber?: string | null;
-  } | null;
+  header?: { claimNumber?: string | null } | null;
   status?: {
     statusCode?: string | null;
     description?: string | null;
     receivedTime?: string | null;
     responseTime?: string | null;
   } | null;
-
-  // ── Claim identifiers ───────────────────────────────────────────────────────
-  claimType?: string | null; // 'H' | 'U'
-  claimNumber?: number | string | null;
-  clientClaimNumber?: string | null;
-  clientReceivedDate?: string | null;
-  receivedDate?: string | null;
-  claimOrigin?: string | null;
-
-  // ── Pend ────────────────────────────────────────────────────────────────────
-  userPend?: string | null; // 'Y' | 'N'
-  pendNotes?: HaltedClaimApiPendNote[] | null;
-
-  // ── Client / policy ─────────────────────────────────────────────────────────
-  clientCode?: string | null; // maps to ccode in HaltedClaim
-
-  // ── Sub-objects ─────────────────────────────────────────────────────────────
-  insured?: HaltedClaimApiInsured | null;
-  patient?: HaltedClaimApiPatient | null;
-  employer?: HaltedClaimApiEmployer | null;
-
-  // ── Payer / network ─────────────────────────────────────────────────────────
-  /** Plain string — not a payer object. */
-  payor?: string | null;
-  lineOfBusiness?: string | null;
-
-  // ── Additional info ─────────────────────────────────────────────────────────
-  additionalInfo?: {
-    info?: HaltedClaimApiInfoItem[];
-  } | null;
-
-  /**
-   * nextHalted wraps all claim fields inside claimInfo{}.
-   * findByClaimId / findByClientClaimId return the same fields flat at root.
-   * adaptHaltedClaimResponse normalises both shapes — components see HaltedClaim only.
-   */
-  claimInfo?: {
-    userPend?: string | null;
-    pendNotes?: HaltedClaimApiPendNote[] | null;
-    clientClaimNumber?: string | null;
-    clientReceivedDate?: string | null;
-    claimType?: string | null;
-    claimNumber?: number | string | null;
-    claimOrigin?: string | null;
-    receivedDate?: string | null;
-    clientCode?: string | null;
-    insured?: HaltedClaimApiInsured | null;
-    patient?: HaltedClaimApiPatient | null;
-    employer?: HaltedClaimApiEmployer | null;
-    payor?: string | null;
-    lineOfBusiness?: string | null;
-    additionalInfo?: {
-      info?: HaltedClaimApiInfoItem[];
-    } | null;
-  } | null;
+  claimType?: string | null;
+  claimInfo?: HaltedClaimInfo | null;
 }
-
-// ── Keep FindByClaimIdLiveResponse as an alias so claimsApi.ts import compiles
-//    without a separate change to that file's import list.
-/** @deprecated Use HaltedClaimApiResponse. Alias kept for claimsApi.ts compatibility. */
-export type FindByClaimIdLiveResponse = HaltedClaimApiResponse;
-
-/** @deprecated Use HaltedClaimApiResponse. Alias kept for claimsApi.ts compatibility. */
-export type NextHaltedClaimResponse = HaltedClaimApiResponse;
 
 // ============================================================================
 // HALTED CLAIM — INTERNAL FLAT SHAPE
 //
 // Adapted from HaltedClaimApiResponse by adaptHaltedClaimResponse().
+// All three search endpoints feed this same shape after adaptation.
 //
-// claimType: 'H' | 'U' — stored as-is; used in action payloads without conversion.
+// claimType: 'H' | 'U' — used as-is in action payloads.
 // Personal info (name, DOB, gender, address) — patient first, insured fallback.
-// insuredId — always from insured.insuredID (identifier, not personal info).
+// insuredId — always from insured.insuredID.
 //
 // Fields with no backend source default to '':
-//   serviceDate, policy, sender
+//   policy, sender
 // ============================================================================
 
 export interface HaltedClaim {
@@ -208,7 +163,10 @@ export interface HaltedClaim {
   /** API value: 'H' (HCFA) or 'U' (UB). Used as-is in action payloads. */
   claimType: 'H' | 'U';
   dateOfReceipt: string;
-  /** Not provided by backend — always ''. Kept for MFE criteria shape compat. */
+  /**
+   * From claimInfo.serviceDate (MM-DD-YYYY). Empty string when absent.
+   * toIsoDate() in ClientManualMatchDashboard converts for <input type="date">.
+   */
   serviceDate: string;
   /** Not provided by backend — always ''. Kept for MFE criteria shape compat. */
   policy: string;
@@ -238,13 +196,6 @@ export interface HaltedClaim {
   scenario?: string;
   /** Always 'HALT' for halted claims. */
   matchType?: string;
-}
-
-export interface ClaimSearchResult {
-  found: boolean;
-  claim?: HaltedClaim;
-  error?: 'NOT_FOUND' | 'LOCKED' | 'NOT_HALTED';
-  message?: string;
 }
 
 // ============================================================================
