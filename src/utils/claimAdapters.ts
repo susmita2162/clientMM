@@ -1,38 +1,30 @@
 // src/utils/claimAdapters.ts
 //
 // Single adapter for all three halted-claim endpoints:
-//   POST /api/client-match/claim-match-action/nextHalted
-//   GET  /api/clientMatch/claim/findByClaimId/:id
-//   GET  /api/clientMatch/claim/findByClientClaimId/:id
+//   POST /nextHalted
+//   GET  /findByClaimId/{id}
+//   GET  /findByClientClaimId/{id}
 //
-// All three now return the same flat HaltedClaimApiResponse shape.
+// All three return the same shape: envelope at root, claim fields in claimInfo{}.
+// This function reads claimInfo and maps it to the flat HaltedClaim used by the UI.
 //
-// Fields with no backend source:
-//   serviceDate — not in API response → ''
-//   policy      — not in API response → ''
-//   sender      — not in API response → ''
+// Fields with no backend source default to '':
+//   policy, sender
 
-import type { HaltedClaim, HaltedClaimApiResponse } from '../types/claims';
+import type {
+  HaltedClaim,
+  HaltedClaimApiResponse,
+  HaltedClaimInfo,
+} from '../types/claims';
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-/**
- * Extracts a named value from additionalInfo.info[].
- * Returns empty string when absent — safe for all string fields.
- */
-function getInfoValue(
-  data:
-    | HaltedClaimApiResponse
-    | NonNullable<HaltedClaimApiResponse['claimInfo']>,
-  name: string
-): string {
+/** Extracts a named value from additionalInfo.info[]. Empty string when absent. */
+function getInfoValue(data: HaltedClaimInfo, name: string): string {
   return data.additionalInfo?.info?.find((i) => i.name === name)?.value ?? '';
 }
 
-/**
- * Builds a display address string from an address sub-object.
- * Returns empty string when address is absent.
- */
+/** Builds a display address string. Empty string when address is absent. */
 function buildAddress(
   address:
     | {
@@ -58,38 +50,31 @@ function buildAddress(
 /**
  * Adapts HaltedClaimApiResponse → HaltedClaim.
  *
- * Field priority rules:
- *   Personal info (name, DOB, gender, address) — patient first, insured fallback.
- *   insuredId — always from insured.insuredID (identifier, not personal info).
+ * Reads all claim fields from claimInfo (where all 3 endpoints place them).
+ * Falls back to header.claimNumber for the claim number when claimInfo.claimNumber
+ * is absent (safety net — all current responses include it in claimInfo).
  *
- * Fields not provided by the backend default to '':
- *   serviceDate, policy, sender
- *
- * claimNumber: prefers response.claimNumber; falls back to header.claimNumber
- *   (nextHalted envelope) when claimNumber is absent.
+ * Personal info priority: patient first, insured as fallback.
+ * insuredId: always from insured.insuredID (identifier, not personal info).
+ * serviceDate: passed through as-is (MM-DD-YYYY); toIsoDate() in
+ *   ClientManualMatchDashboard converts to YYYY-MM-DD for the MFE date input.
  */
 export function adaptHaltedClaimResponse(
   response: HaltedClaimApiResponse
 ): HaltedClaim {
-  // nextHalted wraps all claim fields under claimInfo{}.
-  // findByClaimId / findByClientClaimId return the same fields flat at root.
-  // Normalise here so the rest of the function reads from one shape only.
-  const data = response.claimInfo ?? response;
+  const data = response.claimInfo ?? {};
 
   const insured = data.insured;
   const patient = data.patient;
 
-  // ── Patient personal info — insured fields are fallbacks only ───────────────
-  const firstName = patient?.firstName ?? insured?.firstName ?? '';
-  const lastName = patient?.lastName ?? insured?.lastName ?? '';
-  const middleName = patient?.middleName ?? insured?.middleName ?? '';
+  const firstName = patient?.firstName ?? '';
+  const lastName = patient?.lastName ?? '';
+  const middleName = patient?.middleName ?? '';
   const name = [firstName, middleName, lastName].filter(Boolean).join(' ');
 
-  const dateOfBirth = patient?.dateOfBirth ?? insured?.dateOfBirth ?? '';
-  const gender = patient?.gender ?? insured?.gender ?? '';
-  const address =
-    buildAddress(patient?.address) || buildAddress(insured?.address);
-  // ────────────────────────────────────────────────────────────────────────────
+  const dateOfBirth = patient?.dateOfBirth ?? '';
+  const gender = patient?.gender ?? '';
+  const address = buildAddress(patient?.address) ?? '';
 
   const scenario = getInfoValue(data, 'scenario');
   const matchType = getInfoValue(data, 'matchType') || 'HALT';
@@ -98,8 +83,7 @@ export function adaptHaltedClaimResponse(
   const category: HaltedClaim['category'] =
     userPend === 'Y' ? 'MANUAL_REVIEW_PENDED' : 'MANUAL_REVIEW';
 
-  // claimNumber: root field takes priority; header envelope is the fallback
-  // for nextHalted responses where claimNumber may live in header only.
+  // claimInfo.claimNumber is the canonical source; header.claimNumber is the fallback.
   const claimNumber = String(
     data.claimNumber ?? response.header?.claimNumber ?? ''
   );
@@ -110,29 +94,20 @@ export function adaptHaltedClaimResponse(
     claimStream: data.lineOfBusiness ?? '',
     claimType: (data.claimType ?? 'H') === 'U' ? 'U' : 'H',
     dateOfReceipt: data.clientReceivedDate ?? data.receivedDate ?? '',
-
-    // Not provided by backend — defaulted to '' intentionally.
-    serviceDate: '',
+    serviceDate: data.serviceDate ?? '',
     policy: '',
     sender: '',
-
-    // insuredId is an identifier — always from insured, not patient.
     insuredId: insured?.insuredID ?? '',
     ccode: data.clientCode ?? '',
     group: data.employer?.employerGroupName ?? '',
-    // payor is a plain string on all three responses (not a payer object).
     payer: data.payor ?? '',
     network: data.lineOfBusiness ?? '',
-
-    // Patient personal info
     name,
     firstName,
     lastName,
     dateOfBirth,
     gender,
     address,
-
-    // relationship lives on insured only per the API schema.
     relationship: insured?.relationToPatient ?? '',
     category,
     status: 'HALTED',
@@ -144,9 +119,3 @@ export function adaptHaltedClaimResponse(
     matchType,
   };
 }
-
-/**
- * Named alias used by ClientManualMatchDashboard (nextHalted queue path).
- * Both names call the same function — no duplication of logic.
- */
-export const adaptNextHaltedToHaltedClaim = adaptHaltedClaimResponse;
