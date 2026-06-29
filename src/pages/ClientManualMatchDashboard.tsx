@@ -1,22 +1,23 @@
 // src/pages/ClientManualMatchDashboard.tsx
 //
-// CHANGE (this iteration):
+// CHANGES (this iteration):
 //
+//   scenarioFieldConfig now keyed on RULE_CODE, not SCENARIO label:
+//     getScenarioConfig() previously received claim.scenario ("INSID LN3").
+//     It now receives claim.ruleCode ("1502") — the stable backend identifier
+//     read from additionalInfo.info["ruleCode"] by adaptHaltedClaimResponse.
+//
+//     claim.scenario is kept on HaltedClaim and still used here for the
+//     tab label suffix display ("Member Search - INSID LN3"). Only the
+//     config lookup switches to ruleCode.
+//
+//   adaptNextHaltedToHaltedClaim alias removed:
+//     The alias was removed from claimAdapters.ts in a prior iteration.
+//     loadNextHaltedClaim now calls adaptHaltedClaimResponse directly.
+//
+// Previous change (retained):
 //   Fix — serviceDate field not populating in Member Search MFE:
-//     nextHalted returns dateOfService in MM-DD-YYYY ("06-02-2021").
-//     HTML <input type="date"> requires YYYY-MM-DD — field rendered empty.
-//
-//     toIsoDate() converts MM-DD-YYYY → YYYY-MM-DD before putting the value
-//     into memberInitialCriteria. Non-matching formats are passed through
-//     unchanged (safe for both nextHalted and findByClaimId paths).
-//
-//     In the memo:
-//       criteria.serviceDate = isoDate   → form field displays correctly
-//       criteria.effectiveDate = isoDate → buildSearchCriteria converts
-//                                          YYYY-MM-DD → MM-DD-YYYY for API
-//                                          (intentional, not accidental)
-//
-// All other logic is unchanged.
+//     toIsoDate() converts MM-DD-YYYY → YYYY-MM-DD for <input type="date">.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -34,7 +35,7 @@ import MemberSearchPanel from '../components/MemberSearchPanel';
 import EmployerGroupSearchPanel from '../components/EmployerGroupSearchPanel';
 import { claimsApi } from '../services/claimsApi';
 import { getScenarioConfig } from '../utils/scenarioFieldConfig';
-import { adaptNextHaltedToHaltedClaim } from '../utils/claimAdapters';
+import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
 import type { HaltedClaim } from '../types/claims';
 import type {
   MemberRecord,
@@ -100,8 +101,7 @@ export default function ClientManualMatchDashboard() {
 
   const [activeTab, setActiveTab] = useState(() => {
     const state = location.state as { claim?: HaltedClaim } | null;
-    const scenario = state?.claim?.scenario ?? '';
-    const cfg = getScenarioConfig(scenario);
+    const cfg = getScenarioConfig(state?.claim?.ruleCode ?? '');
     return cfg?.focusedMfe === 'employerGroup' ? 1 : 0;
   });
 
@@ -141,9 +141,9 @@ export default function ClientManualMatchDashboard() {
           lockExpiration: LOCK_EXPIRATION_MINUTES,
         });
         if (response) {
-          const nextClaim = adaptNextHaltedToHaltedClaim(response);
+          const nextClaim = adaptHaltedClaimResponse(response);
           setClaim(nextClaim);
-          const nextCfg = getScenarioConfig(nextClaim.scenario ?? '');
+          const nextCfg = getScenarioConfig(nextClaim.ruleCode ?? '');
           setActiveTab(nextCfg?.focusedMfe === 'employerGroup' ? 1 : 0);
         } else {
           setQueueEmpty(true);
@@ -214,7 +214,7 @@ export default function ClientManualMatchDashboard() {
 
   // ── Scenario config + MFE criteria ────────────────────────────────────────
 
-  const scenarioConfig = claim ? getScenarioConfig(claim.scenario ?? '') : null;
+  const scenarioConfig = claim ? getScenarioConfig(claim.ruleCode ?? '') : null;
 
   const memberAllValues: Record<string, string | undefined> = {
     network: claim?.network || undefined,
