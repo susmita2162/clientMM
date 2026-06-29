@@ -77,6 +77,7 @@ export function adaptHaltedClaimResponse(
   const address = buildAddress(patient?.address) ?? '';
 
   const scenario = getInfoValue(data, 'scenario');
+  const ruleCode = getInfoValue(data, 'ruleCode');
   const matchType = getInfoValue(data, 'matchType') || 'HALT';
 
   const userPend = data.userPend ?? 'N';
@@ -116,6 +117,7 @@ export function adaptHaltedClaimResponse(
     pendedClaim: userPend,
     pendNotes: data.pendNotes ?? [],
     scenario,
+    ruleCode,
     matchType,
   };
 }
