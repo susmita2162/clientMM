@@ -9,6 +9,7 @@ import ClaimsTable from '../components/ClaimsTable/ClaimsTable';
 import Collapsible from '../components/shared/Collapsible';
 import NotFoundDialog from '../components/shared/NotFoundDialog';
 import { claimsApi } from '../services/claimsApi';
+import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
 
 export default function ManualReviewDashboard() {
   const [showNotFoundDialog, setShowNotFoundDialog] = useState(false);
@@ -18,46 +19,33 @@ export default function ManualReviewDashboard() {
   /**
    * Handles the search form submission.
    *
-   * ClaimsSearchForm passes { claimNumber?, clientClaimId? } so we can route
-   * to the correct live endpoint without guessing:
-   *   claimNumber   → GET /api/clientMatch/claim/findByClaimId/{id}
-   *   clientClaimId → GET /api/clientMatch/claim/findByClientClaimId/{id}
+   * Priority: claimNumber (EDP) is tried first when both fields are filled.
    *
-   * Priority: claimNumber (EDP) takes precedence when both fields are filled,
-   * matching the ClaimsSearchForm ClaimSearchParams comment.
-   *
-   * On success: navigate to /claim/:claimNumber passing the already-adapted
-   * HaltedClaim in router state — ClientManualMatchDashboard reads it directly,
-   * no re-fetch needed (there is no live endpoint for fetching by ID).
-   *
-   * On not-found / locked / error: show NotFoundDialog.
+   * Both search methods return HaltedClaimApiResponse | null:
+   *   null  → claim not found / not halted / locked → show NotFoundDialog
+   *   value → adapt and navigate to ClientManualMatchDashboard
    */
   const handleClaimSearch = async (params: ClaimSearchParams) => {
     try {
-      let result;
+      let raw = null;
 
       if (params.claimNumber) {
-        result = await claimsApi.searchByClaimId(params.claimNumber);
+        raw = await claimsApi.searchByClaimId(params.claimNumber);
       } else if (params.clientClaimId) {
-        result = await claimsApi.searchByClientClaimId(params.clientClaimId);
+        raw = await claimsApi.searchByClientClaimId(params.clientClaimId);
       } else {
-        // Both fields empty — form validation should prevent this.
         setErrorMessage('Please enter a Claim Number or Client Claim ID.');
         setShowNotFoundDialog(true);
         return;
       }
 
-      if (result.found && result.claim) {
-        // Claim already adapted to HaltedClaim by the API layer.
-        // Pass via router state — no second API call on the dashboard.
-        void navigate(`/claim/${result.claim.claimNumber}`, {
-          state: { claim: result.claim },
-        });
+      if (raw) {
+        const claim = adaptHaltedClaimResponse(raw);
+        void navigate(`/claim/${claim.claimNumber}`, { state: { claim } });
       } else {
         setErrorMessage(
-          result.message ??
-            'The specified claim was not found. Either it is not a halted claim, ' +
-              'it is locked by another user, or it does not exist.'
+          'The specified claim was not found. Either it is not a halted claim, ' +
+            'it is locked by another user, or it does not exist.'
         );
         setShowNotFoundDialog(true);
       }
