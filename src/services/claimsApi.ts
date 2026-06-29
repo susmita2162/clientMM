@@ -4,13 +4,13 @@
 //
 //   VITE_CLAIMS_SEARCH_API_URL  — claimsearchservice base
 //     e.g. https://claims-poc.dev.multiplan.com/claimsearchservice
-//     Handles: /api/clientmatch/claims
-//              /api/clientMatch/claim/findByClaimId/:id
-//              /api/clientMatch/claim/findByClientClaimId/:id
+//     Handles: /api/clientmatch/claims  (summary counts table)
 //
 //   VITE_CLAIM_MATCH_API_URL    — claim-match service base
 //     e.g. https://claims-poc.dev.multiplan.com/claim-match
-//     Handles: /api/client-match/claim-match-action/*
+//     Handles: /findByClaimId/:id
+//              /findByClientClaimId/:id
+//              /api/client-match/claim-match-action/*
 //
 //   In mock mode both resolve to VITE_MOCK_API_BASE_URL (localhost:3001).
 //   In Docker/OKE set both vars to the correct service base — nginx/ingress
@@ -19,7 +19,6 @@
 import {
   type ClaimActionResponse,
   type ClaimsResponse,
-  type ClaimSearchResult,
   type DenialReason,
   type DenyDecisionRequest,
   type HaltedClaimApiResponse,
@@ -32,7 +31,6 @@ import {
 } from '../types/claims';
 import { ApiServiceError } from '../types/errorTypes';
 import { extractError, handleError } from '../utils/errorUtils';
-import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
 
 // ============================================================================
 // CONFIG
@@ -74,11 +72,12 @@ if (import.meta.env.DEV && !IS_LIVE && !MOCK_API_URL) {
 // ============================================================================
 
 const PATHS = {
-  // claimsearchservice
+  // claimsearchservice — summary counts table only
   claims: '/api/clientmatch/claims',
-  findByClaimId: '/api/clientMatch/claim/findByClaimId',
-  findByClientClaimId: '/api/clientMatch/claim/findByClientClaimId',
-  // claim-match service
+  // claim-match service — all three search endpoints confirmed from Postman (Images 15, 16)
+  findByClaimId: '/findByClaimId',
+  findByClientClaimId: '/findByClientClaimId',
+  // claim-match service — actions
   denialReasons: '/api/client-match/claim-match-action/denial-reasons',
   nextHalted: '/api/client-match/claim-match-action/nextHalted',
   pend: '/api/client-match/claim-match-action/pend',
@@ -110,16 +109,19 @@ function getPostHeaders(): Record<string, string> {
 /**
  * Resolves the correct base URL per path and mode.
  *
- * Mock:  all paths → MOCK_API_URL
- * Live:  /api/client-match/*  → CLAIM_MATCH_API_URL
- *        everything else       → CLAIMS_SEARCH_API_URL
+ * Mock: all paths → MOCK_API_URL
+ * Live: /api/clientmatch/* → CLAIMS_SEARCH_API_URL (summary counts only)
+ *       everything else    → CLAIM_MATCH_API_URL
+ *
+ * Note: /findByClaimId and /findByClientClaimId route to CLAIM_MATCH_API_URL —
+ * confirmed from Postman (https://clm-poc.dev.multiplan.com/claim-match/findByClaimId/...).
  */
 function buildUrl(path: string): string {
   if (!IS_LIVE) return `${MOCK_API_URL}${path}`;
 
-  const base = path.startsWith('/api/client-match')
-    ? CLAIM_MATCH_API_URL
-    : CLAIMS_SEARCH_API_URL;
+  const base = path.startsWith('/api/clientmatch')
+    ? CLAIMS_SEARCH_API_URL
+    : CLAIM_MATCH_API_URL;
 
   return `${base}${path}`;
 }
@@ -158,29 +160,20 @@ export const claimsApi = {
 
   /**
    * Find halted claim by EDP Claim ID (claimNumber).
-   * GET /api/clientMatch/claim/findByClaimId/{claimId}
+   * GET /findByClaimId/{claimId}?lockByUser=system&lockExpiration=15  →  claim-match
    *
-   * 200 → live nested shape adapted to HaltedClaim → { found: true, claim }
-   * 404 → { found: false }  (not found / locked)
+   * Returns raw HaltedClaimApiResponse on success — caller calls adaptHaltedClaimResponse.
+   * Returns null on 404 (not found / not halted / locked by another user).
    */
-  async searchByClaimId(claimId: string): Promise<ClaimSearchResult> {
+  async searchByClaimId(
+    claimId: string
+  ): Promise<HaltedClaimApiResponse | null> {
     try {
-      const url = `${buildUrl(PATHS.findByClaimId)}/${encodeURIComponent(claimId)}`;
+      const url = `${buildUrl(PATHS.findByClaimId)}/${encodeURIComponent(claimId)}?lockByUser=system&lockExpiration=15`;
       const response = await fetchWithTimeout(url, { headers: getHeaders() });
-
-      if (response.status === 404) {
-        return {
-          found: false,
-          error: 'NOT_FOUND',
-          message:
-            'The specified claim was not found. Either it is not a halted claim, ' +
-            'it is locked by another user, or it does not exist.',
-        };
-      }
-
+      if (response.status === 404) return null;
       if (!response.ok) throw new ApiServiceError(await extractError(response));
-      const live = (await response.json()) as HaltedClaimApiResponse;
-      return { found: true, claim: adaptHaltedClaimResponse(live) };
+      return (await response.json()) as HaltedClaimApiResponse;
     } catch (error) {
       throw handleError(error);
     }
@@ -188,30 +181,20 @@ export const claimsApi = {
 
   /**
    * Find halted claim by Client Claim ID.
-   * GET /api/clientMatch/claim/findByClientClaimId/{clientClaimId}
+   * GET /findByClientClaimId/{clientClaimId}?lockByUser=system&lockExpiration=15  →  claim-match
    *
-   * Same live shape as findByClaimId — same adapter.
+   * Same response shape as searchByClaimId — caller calls adaptHaltedClaimResponse.
+   * Returns null on 404.
    */
   async searchByClientClaimId(
     clientClaimId: string
-  ): Promise<ClaimSearchResult> {
+  ): Promise<HaltedClaimApiResponse | null> {
     try {
-      const url = `${buildUrl(PATHS.findByClientClaimId)}/${encodeURIComponent(clientClaimId)}`;
+      const url = `${buildUrl(PATHS.findByClientClaimId)}/${encodeURIComponent(clientClaimId)}?lockByUser=system&lockExpiration=15`;
       const response = await fetchWithTimeout(url, { headers: getHeaders() });
-
-      if (response.status === 404) {
-        return {
-          found: false,
-          error: 'NOT_FOUND',
-          message:
-            'The specified claim was not found. Either it is not a halted claim, ' +
-            'it is locked by another user, or it does not exist.',
-        };
-      }
-
+      if (response.status === 404) return null;
       if (!response.ok) throw new ApiServiceError(await extractError(response));
-      const live = (await response.json()) as HaltedClaimApiResponse;
-      return { found: true, claim: adaptHaltedClaimResponse(live) };
+      return (await response.json()) as HaltedClaimApiResponse;
     } catch (error) {
       throw handleError(error);
     }
@@ -239,10 +222,8 @@ export const claimsApi = {
    * Next halted claim from queue.
    * POST /api/client-match/claim-match-action/nextHalted  →  claim-match
    *
-   * Returns the same flat HaltedClaimApiResponse shape as findByClaimId.
-   * Caller (ClientManualMatchDashboard) passes result to adaptNextHaltedToHaltedClaim
-   * which is an alias for adaptHaltedClaimResponse.
-   * 404 → null (queue empty).
+   * Returns raw HaltedClaimApiResponse — caller calls adaptHaltedClaimResponse.
+   * Returns null when the queue is empty (404).
    */
   async getNextHaltedClaim(
     params: NextHaltedClaimRequest
