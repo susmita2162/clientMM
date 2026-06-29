@@ -192,8 +192,14 @@ export interface HaltedClaim {
   pendedClaim?: string;
   /** Historical pend notes. Displayed in PendDialog upper section. */
   pendNotes?: HaltedClaimApiPendNote[];
-  /** Scenario code (e.g. "INSID LN3"). Drives MFE field highlighting. */
+  /** Scenario code (e.g. "INSID LN3"). Used for tab label suffix display. */
   scenario?: string;
+  /**
+   * Rule code (e.g. "1502"). Read from additionalInfo.info["ruleCode"].
+   * This is the stable key used to look up ScenarioFieldConfig — not the
+   * scenario label, which is human-readable and may change.
+   */
+  ruleCode?: string;
   /** Always 'HALT' for halted claims. */
   matchType?: string;
 }
