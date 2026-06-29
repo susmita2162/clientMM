@@ -30,7 +30,7 @@ import {
   getBandedRowStyle,
 } from './utils';
 import { claimsApi } from '../../services/claimsApi';
-import { adaptNextHaltedToHaltedClaim } from '../../utils/claimAdapters';
+import { adaptHaltedClaimResponse } from '../../utils/claimAdapters';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ const ClaimsTable = () => {
       });
 
       if (response) {
-        const claim = adaptNextHaltedToHaltedClaim(response);
+        const claim = adaptHaltedClaimResponse(response);
         void navigate(`/claim/${claim.claimNumber}`, {
           state: {
             claim,
