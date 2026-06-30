@@ -107,12 +107,12 @@ export interface HaltedClaimApiPendNote {
  * directly — no field duplication.
  */
 export interface HaltedClaimInfo {
-  userPend?: string | null; // 'Y' | 'N'
-  serviceDate?: string | null; // MM-DD-YYYY
+  userPend?: string | null;
+  serviceDate?: string | null;
   pendNotes?: HaltedClaimApiPendNote[] | null;
   clientClaimNumber?: string | null;
   clientReceivedDate?: string | null;
-  claimType?: string | null; // 'H' | 'U'
+  claimType?: string | null;
   claimNumber?: number | string | null;
   claimOrigin?: string | null;
   receivedDate?: string | null;
@@ -230,6 +230,7 @@ export interface UpdateCcodeRequest {
   policy: string;
   ccode: string;
   policyAlias: string;
+  /** Always sent as false initially; set true on ccodeNotEffective override. */
   forceCcode: boolean;
   serviceDate: string;
   receiptDate: string;
@@ -239,6 +240,7 @@ export interface UpdateCcodeRequest {
   lockedByUser: string;
   eligMemberId: number;
   ccodeRecId: number;
+  /** Always sent as false initially; set true on policy override. */
   forcePolicy: boolean;
 }
 
@@ -251,32 +253,57 @@ export interface ResetSearchRequest {
 
 export interface ClaimActionResponse {
   header: {
-    requestId: string;
+    requestId?: string;
     claimNumber: string;
   };
   status: {
     statusCode: string;
     description: string;
-    errorCode: string;
-    errorMessage: string;
-    receivedTime: string;
-    responseTime: string;
+    errorCode?: string;
+    errorMessage?: string;
+    receivedTime?: string;
+    responseTime?: string;
   };
+  claimType?: string;
 }
 
 // ============================================================================
 // UPDATE CCODE RESPONSE — discriminated union
+//
+// Real API always returns HTTP 200. Discriminate on status.statusCode:
+//   'C' → success — "Claim validated and locked successfully."
+//   'P' → validation warning (e.g. ccodeNotEffective) — canOverride may be true
+//          Show description from API in Yes/No dialog.
+//          Yes → re-submit with forceCcode: true (ccodeNotEffective)
+//               or forcePolicy: true (invalid === 'policy')
+//   'A' → hard failure (e.g. ccodeNotFound) — canOverride: false
+//          Show description inline on dashboard with Retry + Return buttons.
 // ============================================================================
 
+export interface UpdateCcodeValidation {
+  canOverride: boolean;
+  /** Identifies which field is invalid. */
+  invalid: 'ccodeNotEffective' | 'ccodeNotFound' | 'policy';
+  forceCcode: boolean;
+  forcePolicy: boolean;
+}
+
+/**
+ * HTTP 200 non-success response from POST /updateCcode.
+ * Matches the actual API shape confirmed in Postman (images 9, 11, 12).
+ */
 export interface UpdateCcodeAlertResponse {
-  status: 'ALERT';
-  message: string;
-  parameters: {
-    invalid: string;
-    forceCcode: boolean;
-    forcePolicy: boolean;
+  header?: { claimNumber?: string | null } | null;
+  status: {
+    statusCode: string;
+    description: string;
+    errorCode?: string;
+    errorMessage?: string;
+    receivedTime?: string;
+    responseTime?: string;
   };
-  errors: Record<string, unknown>;
+  claimType?: string | null;
+  validation?: UpdateCcodeValidation | null;
 }
 
 export type UpdateCcodeResult =
