@@ -2,22 +2,24 @@
 //
 // CHANGES (this iteration):
 //
-//   scenarioFieldConfig now keyed on RULE_CODE, not SCENARIO label:
-//     getScenarioConfig() previously received claim.scenario ("INSID LN3").
-//     It now receives claim.ruleCode ("1502") — the stable backend identifier
-//     read from additionalInfo.info["ruleCode"] by adaptHaltedClaimResponse.
+//   1. Post-updateCCode success flow — corrected:
+//      After updateCCode returns statusCode 'C', call getNextHaltedClaim
+//      (POST /nextHalted) to load the next claim. updateCCode does NOT call
+//      pendClaim — pend is a separate user-initiated action.
+//      All actions (updateCCode, pendClaim, denyClaim, resetClaim) now use
+//      the same loadNextHaltedClaim path via queueContextRef.
 //
-//     claim.scenario is kept on HaltedClaim and still used here for the
-//     tab label suffix display ("Member Search - INSID LN3"). Only the
-//     config lookup switches to ruleCode.
+//   2. CcodeNotFound inline banner:
+//      When updateCCode returns statusCode 'A' (invalid: 'ccodeNotFound'),
+//      ClaimInformationPanel calls onCcodeNotFound(message). The dashboard
+//      shows CcodeNotFoundBanner inline above the MFE panels.
+//      Retry → clears the banner; Return to Dashboard → /manual-review.
 //
-//   adaptNextHaltedToHaltedClaim alias removed:
-//     The alias was removed from claimAdapters.ts in a prior iteration.
-//     loadNextHaltedClaim now calls adaptHaltedClaimResponse directly.
+//   3. scenarioFieldConfig lookup: keyed on ruleCode (stable), not scenario label.
 //
-// Previous change (retained):
-//   Fix — serviceDate field not populating in Member Search MFE:
-//     toIsoDate() converts MM-DD-YYYY → YYYY-MM-DD for <input type="date">.
+// Previous changes (retained):
+//   - adaptHaltedClaimResponse used directly (alias removed).
+//   - serviceDate MM-DD-YYYY → YYYY-MM-DD conversion via toIsoDate().
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -33,6 +35,7 @@ import {
 import ClaimInformationPanel from '../components/ClaimInformationPanel';
 import MemberSearchPanel from '../components/MemberSearchPanel';
 import EmployerGroupSearchPanel from '../components/EmployerGroupSearchPanel';
+import { CcodeNotFoundBanner } from '../components/UpdateCcodeDialogs';
 import { claimsApi } from '../services/claimsApi';
 import { getScenarioConfig } from '../utils/scenarioFieldConfig';
 import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
@@ -59,8 +62,7 @@ interface QueueContext {
 
 /**
  * Converts MM-DD-YYYY → YYYY-MM-DD for HTML <input type="date"> display.
- * Returns the input unchanged if it does not match MM-DD-YYYY (safe for
- * dates already in YYYY-MM-DD or any other format).
+ * Returns the input unchanged for any other format.
  */
 function toIsoDate(value: string): string {
   const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value);
@@ -99,6 +101,12 @@ export default function ClientManualMatchDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [queueEmpty, setQueueEmpty] = useState(false);
 
+  // CcodeNotFound banner — shown inline when updateCCode returns statusCode 'A'.
+  // Cleared on successful action, retry, or navigation.
+  const [ccodeNotFoundMessage, setCcodeNotFoundMessage] = useState<
+    string | null
+  >(null);
+
   const [activeTab, setActiveTab] = useState(() => {
     const state = location.state as { claim?: HaltedClaim } | null;
     const cfg = getScenarioConfig(state?.claim?.ruleCode ?? '');
@@ -115,7 +123,7 @@ export default function ClientManualMatchDashboard() {
   const queueContextRef = useRef<QueueContext | null>(null);
   const hasInitialized = useRef(false);
 
-  // ── Reset all MFE selection state ─────────────────────────────────────────
+  // ── Reset MFE selection state ─────────────────────────────────────────────
 
   const resetMfeSelection = useCallback(() => {
     setSelectedCcode('');
@@ -124,13 +132,18 @@ export default function ClientManualMatchDashboard() {
     setSelectedMatchType('');
   }, []);
 
-  // ── Queue loader ───────────────────────────────────────────────────────────
+  // ── Load next halted claim from queue ────────────────────────────────────
+  //
+  // Called after every completed action: updateCCode (statusCode 'C'),
+  // pendClaim, pendNotes, denyClaim, resetClaim.
+  // All actions use the same POST /nextHalted path.
 
   const loadNextHaltedClaim = useCallback(
     async (ctx: QueueContext) => {
       setLoading(true);
       setError(null);
       setQueueEmpty(false);
+      setCcodeNotFoundMessage(null);
       resetMfeSelection();
       try {
         const response = await claimsApi.getNextHaltedClaim({
@@ -184,7 +197,11 @@ export default function ClientManualMatchDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Action handler (success path only) ────────────────────────────────────
+  // ── Action handler ────────────────────────────────────────────────────────
+  //
+  // All completed actions (updateCCode, pendClaim, pendNotes, denyClaim,
+  // resetClaim) call getNextHaltedClaim to load the next claim from the queue.
+  // If no queue context exists (search-navigated entry), go back to dashboard.
 
   const handleClaimAction = useCallback(
     (
@@ -195,6 +212,8 @@ export default function ClientManualMatchDashboard() {
         | 'denyClaim'
         | 'resetClaim'
     ) => {
+      setCcodeNotFoundMessage(null);
+
       if (queueContextRef.current) {
         void loadNextHaltedClaim(queueContextRef.current);
       } else {
@@ -203,6 +222,15 @@ export default function ClientManualMatchDashboard() {
     },
     [loadNextHaltedClaim, navigate]
   );
+
+  // ── CcodeNotFound handler ─────────────────────────────────────────────────
+  //
+  // Called by ClaimInformationPanel when updateCCode returns statusCode 'A'.
+  // Shows the inline CcodeNotFoundBanner — no queue advance, no override.
+
+  const handleCcodeNotFound = useCallback((message: string) => {
+    setCcodeNotFoundMessage(message);
+  }, []);
 
   // ── Member selection handler ───────────────────────────────────────────────
 
@@ -371,10 +399,26 @@ export default function ClientManualMatchDashboard() {
         overflow: 'hidden',
       }}
     >
+      {/* CCode Not Found inline banner — shown when statusCode 'A' (no override) */}
+      {ccodeNotFoundMessage && (
+        <Box sx={{ flexShrink: 0, px: { xs: 0.5, sm: 0 } }}>
+          <CcodeNotFoundBanner
+            message={ccodeNotFoundMessage}
+            onRetry={() => {
+              // Clear the banner — ClaimInformationPanel re-opens UpdateCcodeDialog
+              // via its own internal state when the user clicks Update CCode again.
+              setCcodeNotFoundMessage(null);
+            }}
+            onReturnToDashboard={() => void navigate('/manual-review')}
+          />
+        </Box>
+      )}
+
       <Box sx={{ flexShrink: 0 }}>
         <ClaimInformationPanel
           claim={claim}
           onAction={handleClaimAction}
+          onCcodeNotFound={handleCcodeNotFound}
           selectedCcode={selectedCcode || undefined}
           selectedEligMemberId={selectedEligMemberId}
           selectedMemberServiceDate={selectedMemberServiceDate}
