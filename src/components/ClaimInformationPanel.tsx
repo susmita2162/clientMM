@@ -3,20 +3,36 @@
 //
 // CHANGES (this iteration):
 //
-//   pendNotes display — new nested shape:
-//     nextHalted now returns pendNotes as HaltedClaimApiPendNote[] (structured objects
-//     with noteText, creationDate, createdBy, modificationDate, modifiedBy).
-//     existingNotesDisplay now extracts noteText and formats each note as a
-//     readable entry instead of joining all Object.values together.
+//   updateCCode response handling aligned to real API shape:
 //
-//     findByClaimId still returns Record<string,string>[] — the formatter handles
-//     both shapes via a type-safe guard, so no regression for that path.
+//   Old (wrong) shape assumed:
+//     result.data.parameters.invalid === 'ccode' | 'policy'
+//     result.data.message  (the description string)
 //
-// All other logic is unchanged.
+//   Real API shape (confirmed from Postman, images 9/11/12):
+//     result.data.validation.invalid === 'ccodeNotEffective' | 'policy' | 'ccodeNotFound'
+//     result.data.status.description  (the description string)
+//     result.data.status.statusCode   === 'P' (overridable) | 'A' (hard fail)
+//
+//   Three result branches:
+//     invalid === 'ccodeNotEffective' → CcodeNotEffectiveDialog (Yes → forceCcode: true)
+//     invalid === 'policy'            → InvalidPolicyDialog (Yes → forcePolicy: true)
+//     invalid === 'ccodeNotFound'     → onCcodeNotFound(description) — inline banner
+//                                       on dashboard, no re-submission possible
+//
+//   onAction union extended to include 'resetClaim'.
+//   onCcodeNotFound prop added — called for the ccodeNotFound hard-failure case.
+//
+// Previous change (retained):
+//   pendNotes display — structured HaltedClaimApiPendNote[] shape support.
 
 import { useState } from 'react';
 import { Alert, Box, Button, Snackbar } from '@mui/material';
-import { MrMatchTypeDialog, InvalidCcodeDialog } from './UpdateCcodeDialogs';
+import {
+  MrMatchTypeDialog,
+  CcodeNotEffectiveDialog,
+  InvalidPolicyDialog,
+} from './UpdateCcodeDialogs';
 import Collapsible from './shared/Collapsible';
 import ClaimInfoGrid from './ClaimInfoGrid';
 import ClaimActionBar from './ClaimActionBar';
@@ -30,8 +46,19 @@ import type { HaltedClaim, HaltedClaimApiPendNote } from '../types/claims';
 interface Props {
   readonly claim: HaltedClaim;
   readonly onAction: (
-    action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim'
+    action:
+      | 'updateCCode'
+      | 'pendClaim'
+      | 'pendNotes'
+      | 'denyClaim'
+      | 'resetClaim'
   ) => void;
+  /**
+   * Called when updateCCode returns statusCode 'A' (invalid: ccodeNotFound).
+   * The dashboard renders an inline CcodeNotFoundBanner with this message.
+   * No dialog — canOverride is false, no re-submission is possible.
+   */
+  readonly onCcodeNotFound?: (message: string) => void;
   /**
    * CCode selected in a MFE panel.
    * Forwarded to ClaimInfoGrid (live "Client Code" display) and used as the
@@ -50,8 +77,7 @@ interface Props {
   readonly selectedMemberServiceDate?: string;
   /**
    * matchType of the ClientRecord selected in Employer Group Search.
-   * When 'MR', Dialog 1 (MR Match Type) is shown before the API call.
-   * Sourced from EmployerGroupSearchPanel → ClientManualMatchDashboard.
+   * When 'MR', MrMatchTypeDialog is shown before the API call.
    */
   readonly selectedMatchType?: string;
   /**
@@ -73,7 +99,7 @@ const resolveErrorMessage = (err: unknown, defaultMessage: string): string => {
 };
 
 /**
- * Type guard — returns true when the note is the new structured shape
+ * Type guard — returns true when the note is the structured shape
  * (HaltedClaimApiPendNote) returned by the updated nextHalted API.
  */
 const isStructuredNote = (
@@ -87,8 +113,6 @@ const isStructuredNote = (
  *
  * New nextHalted shape:  HaltedClaimApiPendNote[] → "noteText  (creationDate, createdBy)"
  * Legacy findByClaimId:  Record<string,string>[] → all values joined (unchanged behaviour)
- *
- * Returns an empty string when there are no notes.
  */
 const formatPendNotes = (
   notes: HaltedClaimApiPendNote[] | Record<string, string>[] | undefined
@@ -115,6 +139,7 @@ const formatPendNotes = (
 export default function ClaimInformationPanel({
   claim,
   onAction,
+  onCcodeNotFound,
   selectedCcode,
   selectedEligMemberId,
   selectedMemberServiceDate,
@@ -132,33 +157,39 @@ export default function ClaimInformationPanel({
 
   // ── Update CCode dialog state ──────────────────────────────────────────────
 
-  // Dialog 1: MR Match Type — shown BEFORE the API call when the selected
-  // employer group record has matchType 'MR'.
+  // Dialog 1 (pre-API): MR Match Type.
+  // Shown when selectedMatchType === 'MR'. Yes → forceCcode: true.
   const [mrMatchDialogOpen, setMrMatchDialogOpen] = useState(false);
 
-  // Dialog 2: Invalid field — shown AFTER API returns status: 'ALERT' with
-  // parameters.invalid === 'ccode' or 'policy'. Message from the API response.
-  // forceField drives which flag is set to true on confirm.
-  const [invalidCcodeDialog, setInvalidCcodeDialog] = useState<{
+  // Dialog 2a (post-API): CCode Not Effective.
+  // Shown when validation.invalid === 'ccodeNotEffective' (statusCode 'P').
+  // Yes → re-submit with forceCcode: true.
+  const [ccodeNotEffectiveDialog, setCcodeNotEffectiveDialog] = useState<{
     open: boolean;
     message: string;
-    forceField: 'ccode' | 'policy';
-  }>({ open: false, message: '', forceField: 'ccode' });
+  }>({ open: false, message: '' });
 
-  // Reset all transient dialog and pend state when the claim changes.
-  // Called during render — React will immediately re-render with new state.
+  // Dialog 2b (post-API): Invalid Policy.
+  // Shown when validation.invalid === 'policy' (statusCode 'P').
+  // Yes → re-submit with forcePolicy: true.
+  const [invalidPolicyDialog, setInvalidPolicyDialog] = useState<{
+    open: boolean;
+    message: string;
+  }>({ open: false, message: '' });
+
+  // Reset all transient dialog and pend state when the claim changes (queue advance).
   if (prevClaimNumber !== claim.claimNumber) {
     setPrevClaimNumber(claim.claimNumber);
     setIsPended(claim.pendedClaim === 'Y');
     setMrMatchDialogOpen(false);
-    setInvalidCcodeDialog({ open: false, message: '', forceField: 'ccode' });
+    setCcodeNotEffectiveDialog({ open: false, message: '' });
+    setInvalidPolicyDialog({ open: false, message: '' });
   }
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  // ── Loading / error ────────────────────────────────────────────────────────
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // ── Action error ───────────────────────────────────────────────────────────
-  // Set on any API error. Disables all action buttons until explicitly dismissed.
+  // Persistent error alert — disables all buttons until dismissed.
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Buttons are disabled during an in-flight action OR while an unacknowledged
@@ -176,18 +207,19 @@ export default function ClaimInformationPanel({
   // ── Update CCode ───────────────────────────────────────────────────────────
 
   /**
-   * Core submit function — builds payload and fires the API.
+   * Core submit — builds the request and fires POST /updateCcode.
    *
-   * Called in three ways:
-   *   submitUpdateCcode(false, false)  — normal flow
-   *   submitUpdateCcode(true,  false)  — after Dialog 1 (MR) or Dialog 2 (invalid ccode) confirm
-   *   submitUpdateCcode(false, true)   — after Dialog 2 (invalid policy) confirm
+   * forceCcode and forcePolicy are always false on the first call.
+   * They are set to true on re-submission from the override dialogs:
+   *   ccodeNotEffective → forceCcode: true
+   *   policy invalid    → forcePolicy: true
    *
-   * Result handling:
-   *   type 'success'                             → snackbar + onAction
-   *   type 'alert', invalid === 'ccode'          → show Dialog 2, forceField: 'ccode'
-   *   type 'alert', invalid === 'policy'         → show Dialog 2, forceField: 'policy'
-   *   type 'alert', other invalid field          → surface as actionError (do not swallow)
+   * Result branches (keyed on real API shape):
+   *   statusCode 'C'                         → success → snackbar + onAction('updateCCode')
+   *   statusCode 'P', invalid 'ccodeNotEffective' → CcodeNotEffectiveDialog (Yes/No)
+   *   statusCode 'P', invalid 'policy'           → InvalidPolicyDialog (Yes/No)
+   *   statusCode 'A', invalid 'ccodeNotFound'    → onCcodeNotFound(description) — inline banner
+   *   any other invalid value                    → surface as actionError (do not swallow)
    */
   const submitUpdateCcode = (forceCcode: boolean, forcePolicy: boolean) => {
     setActionLoading('updateCcode');
@@ -208,25 +240,39 @@ export default function ClaimInformationPanel({
         ccodeRecId: 0,
       })
       .then((result) => {
-        if (result.type === 'alert') {
-          const { invalid } = result.data.parameters;
-          if (invalid === 'ccode' || invalid === 'policy') {
-            setInvalidCcodeDialog({
-              open: true,
-              message: result.data.message,
-              forceField: invalid,
-            });
-          } else {
-            // Unknown ALERT field — surface as error, do not swallow.
-            setActionError(
-              result.data.message ||
-                'CCode update was not accepted. Please try again.'
-            );
-          }
+        if (result.type === 'success') {
+          // statusCode 'C' — "Claim validated and locked successfully."
+          showSuccess('CCode updated successfully.');
+          onAction('updateCCode');
           return;
         }
-        showSuccess('CCode updated successfully.');
-        onAction('updateCCode');
+
+        // result.type === 'alert' — real API shape: result.data.validation.invalid
+        const invalid = result.data.validation?.invalid;
+        const description = result.data.status.description;
+
+        if (invalid === 'ccodeNotEffective') {
+          // statusCode 'P', canOverride: true → Yes/No → re-submit with forceCcode: true
+          setCcodeNotEffectiveDialog({ open: true, message: description });
+          return;
+        }
+
+        if (invalid === 'policy') {
+          // statusCode 'P' → Yes/No → re-submit with forcePolicy: true
+          setInvalidPolicyDialog({ open: true, message: description });
+          return;
+        }
+
+        if (invalid === 'ccodeNotFound') {
+          // statusCode 'A', canOverride: false → inline banner on dashboard
+          onCcodeNotFound?.(description);
+          return;
+        }
+
+        // Unknown invalid field — surface as error, do not swallow.
+        setActionError(
+          description || 'CCode update was not accepted. Please try again.'
+        );
       })
       .catch((err: unknown) =>
         setActionError(
@@ -237,10 +283,8 @@ export default function ClaimInformationPanel({
   };
 
   /**
-   * "Update CCode" button handler.
-   *
-   * Dialog 1 interception: when the employer group record selected by the user
-   * has matchType 'MR', show the enrollment confirmation dialog first.
+   * "Update CCode" button click handler.
+   * MR interception: show MrMatchTypeDialog first when selectedMatchType === 'MR'.
    * Normal path: submit directly with both force flags false.
    */
   const handleUpdateCcodeClick = () => {
@@ -386,9 +430,8 @@ export default function ClaimInformationPanel({
         onConfirm={handlePendConfirm}
       />
 
-      {/* Dialog 1 — MR Match Type
-          Shown before the API call when the selected employer group record
-          has matchType 'MR'. Yes → forceCcode: true. */}
+      {/* Dialog 1 — MR Match Type (pre-API)
+          Shown when selectedMatchType === 'MR'. Yes → forceCcode: true. */}
       <MrMatchTypeDialog
         open={mrMatchDialogOpen}
         onClose={() => setMrMatchDialogOpen(false)}
@@ -398,18 +441,29 @@ export default function ClaimInformationPanel({
         }}
       />
 
-      {/* Dialog 2 — Invalid field (ALERT response)
-          Shown after API returns status: 'ALERT' with invalid: 'ccode' or 'policy'.
-          Message text comes from the API response.
-          Yes → re-submit with the relevant force flag set to true. */}
-      <InvalidCcodeDialog
-        open={invalidCcodeDialog.open}
-        message={invalidCcodeDialog.message}
-        onClose={() => setInvalidCcodeDialog((s) => ({ ...s, open: false }))}
+      {/* Dialog 2a — CCode Not Effective (post-API, statusCode 'P', invalid 'ccodeNotEffective')
+          Message text from API response. Yes → re-submit with forceCcode: true. */}
+      <CcodeNotEffectiveDialog
+        open={ccodeNotEffectiveDialog.open}
+        message={ccodeNotEffectiveDialog.message}
+        onClose={() =>
+          setCcodeNotEffectiveDialog((s) => ({ ...s, open: false }))
+        }
         onConfirm={() => {
-          const { forceField } = invalidCcodeDialog;
-          setInvalidCcodeDialog((s) => ({ ...s, open: false }));
-          submitUpdateCcode(forceField === 'ccode', forceField === 'policy');
+          setCcodeNotEffectiveDialog({ open: false, message: '' });
+          submitUpdateCcode(true, false);
+        }}
+      />
+
+      {/* Dialog 2b — Invalid Policy (post-API, statusCode 'P', invalid 'policy')
+          Message text from API response. Yes → re-submit with forcePolicy: true. */}
+      <InvalidPolicyDialog
+        open={invalidPolicyDialog.open}
+        message={invalidPolicyDialog.message}
+        onClose={() => setInvalidPolicyDialog((s) => ({ ...s, open: false }))}
+        onConfirm={() => {
+          setInvalidPolicyDialog({ open: false, message: '' });
+          submitUpdateCcode(false, true);
         }}
       />
 
