@@ -142,10 +142,7 @@ function fetchWithTimeout(
 // ============================================================================
 
 export const claimsApi = {
-  /**
-   * Claim counts summary table.
-   * GET /api/clientmatch/claims  →  claimsearchservice
-   */
+  /** GET /api/clientmatch/claims → claim counts summary table */
   async getClaims(): Promise<ClaimsResponse> {
     try {
       const response = await fetchWithTimeout(buildUrl(PATHS.claims), {
@@ -243,8 +240,11 @@ export const claimsApi = {
   },
 
   /**
-   * Pend a claim.
-   * POST /api/client-match/claim-match-action/pend  →  claim-match
+   * POST /api/client-match/claim-match-action/pend
+   *
+   * Pends the current claim. Does not return the next halted claim —
+   * call getNextHaltedClaim (POST /nextHalted) separately after success
+   * to load the next claim from the queue.
    */
   async pendClaim(params: PendClaimRequest): Promise<void> {
     try {
@@ -278,16 +278,18 @@ export const claimsApi = {
   },
 
   /**
-   * Update CCode.
-   * POST /api/client-match/claim-match-action/claim/updateCcode  →  claim-match
+   * POST /api/client-match/claim-match-action/claim/updateCcode
    *
-   * Returns a discriminated union — callers must branch on result.type:
-   *   'success' → proceed normally.
-   *   'alert'   → inspect result.data.parameters.invalid for the rejected field.
+   * Always returns HTTP 200. Discriminate on status.statusCode:
+   *   'C' → success — claim validated and locked; caller should pend to get next.
+   *   'P' → validation warning (ccodeNotEffective / policy invalid):
+   *          canOverride: true → show description in Yes/No dialog.
+   *          Yes → re-submit with forceCcode: true (ccodeNotEffective)
+   *               or forcePolicy: true (invalid === 'policy').
+   *   'A' → hard failure (ccodeNotFound): canOverride: false
+   *          Show description inline; offer Retry + Return to Dashboard.
    *
-   * ALERT responses come back as HTTP 200 (not an error status), so !response.ok
-   * does not catch them. Discriminator: body.status === 'ALERT' (string) vs
-   * ClaimActionResponse.status (object) — check is unambiguous.
+   * forceCcode and forcePolicy always default to false on the first submission.
    */
   async updateCcode(params: UpdateCcodeRequest): Promise<UpdateCcodeResult> {
     try {
@@ -297,21 +299,28 @@ export const claimsApi = {
         body: JSON.stringify(params),
       });
       if (!response.ok) throw new ApiServiceError(await extractError(response));
-      const raw: unknown = (await response.json()) as unknown;
-      const status = (raw as Record<string, unknown>).status;
-      if (status === 'ALERT') {
-        return { type: 'alert', data: raw as UpdateCcodeAlertResponse };
+
+      const raw = (await response.json()) as Record<string, unknown>;
+
+      // Discriminate on status.statusCode (object, not a string flag).
+      // 'C' = success; anything else ('P', 'A') = alert/failure.
+      const status = raw.status as Record<string, unknown> | undefined;
+      const statusCode = (status?.statusCode as string | undefined) ?? '';
+
+      if (statusCode === 'C') {
+        return { type: 'success', data: raw as unknown as ClaimActionResponse };
       }
-      return { type: 'success', data: raw as ClaimActionResponse };
+
+      return {
+        type: 'alert',
+        data: raw as unknown as UpdateCcodeAlertResponse,
+      };
     } catch (error) {
       throw handleError(error);
     }
   },
 
-  /**
-   * Reset claims group data search info.
-   * POST /api/client-match/claim-match-action/claim/reset  →  claim-match
-   */
+  /** POST /api/client-match/claim-match-action/claim/reset */
   async resetClaim(params: ResetSearchRequest): Promise<void> {
     try {
       const response = await fetchWithTimeout(buildUrl(PATHS.resetClaim), {
