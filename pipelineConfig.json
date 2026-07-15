@@ -1,28 +1,25 @@
 {
-  "applicationName": "ucp-group-search-ui",
+  "applicationName": "ucp-client-match-ui",
   "applicationType": "ReactJS",
-  "teamName": "YOUR_TEAM_NAME",
+  "teamName": "ucp-cf-cad",
   "emailNotification": "your-team@multiplan.com",
   "dependencyCheck": false,
+  "sonar-threshold": "Level 3",
   "xray-threshold": "High",
-  "snyk-threshold": "High",
   "checkmarx-threshold": "Low",
   "tools": {
-    "nodejs": ""
+    "nodejs": "",
+    "jdk": "",
+    "maven": ""
   },
 
   "build": {
     "buildType": "Docker",
     "container": true,
-    "sonarProjectKey": "ucp-group-search-portal",
+    "sonarProjectKey": "ucp-client-match-ui",
     "artifactoryPath": "mpi_javascript/ucp/react",
     "checkmarxGroup": "UCP",
-    "snykOrgId": "da7ed...",
-    "buildArgs": {
-      "VITE_API_MODE": "live",
-      "VITE_API_BASE_URL": "https:/claims-poc.dev.multiplan.com/claimsearchservice",
-      "VITE_BUILD_VERSION": "${IMAGE_TAG_FULL}"
-    }
+    "snykOrgId": "da7ed..."
   },
 
   "deployment": {
@@ -55,7 +52,7 @@
   "servicenow": {
     "assignment-group": "APP_DEV_UCP",
     "business-owner-prod": "ECAB",
-    "configuration-item": "ucp-group-search",
+    "configuration-item": "ucp-client-match",
     "it-owner-stg": "ITO_STG_CLAIMS",
     "it-owner-prd": "ITO_ESUITE_EDI_DEV"
   },

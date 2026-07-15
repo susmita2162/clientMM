@@ -4,11 +4,6 @@
     import {loadShare} from "@module-federation/runtime";
     const importMap = {
       
-        "@emotion/react": async () => {
-          let pkg = await import("__mf__virtual/claimsManagementHost__prebuild___mf_0_emotion_mf_1_react__prebuild__.js");
-            return pkg;
-        }
-      ,
         "@mui/material": async () => {
           let pkg = await import("__mf__virtual/claimsManagementHost__prebuild___mf_0_mui_mf_1_material__prebuild__.js");
             return pkg;
@@ -18,45 +13,10 @@
           let pkg = await import("__mf__virtual/claimsManagementHost__prebuild__react__prebuild__.js");
             return pkg;
         }
-      ,
-        "react-dom": async () => {
-          let pkg = await import("__mf__virtual/claimsManagementHost__prebuild__react_mf_2_dom__prebuild__.js");
-            return pkg;
-        }
       
     }
       const usedShared = {
       
-          "@emotion/react": {
-            name: "@emotion/react",
-            version: "11.14.0",
-            scope: ["default"],
-            loaded: false,
-            from: "claimsManagementHost",
-            async get () {
-              if (false) {
-                throw new Error(`Shared module '${"@emotion/react"}' must be provided by host`);
-              }
-              usedShared["@emotion/react"].loaded = true
-              const {"@emotion/react": pkgDynamicImport} = importMap
-              const res = await pkgDynamicImport()
-              const exportModule = {...res}
-              // All npm packages pre-built by vite will be converted to esm
-              Object.defineProperty(exportModule, "__esModule", {
-                value: true,
-                enumerable: false
-              })
-              return function () {
-                return exportModule
-              }
-            },
-            shareConfig: {
-              singleton: true,
-              requiredVersion: ">=11.14.0",
-              
-            }
-          }
-        ,
           "@mui/material": {
             name: "@mui/material",
             version: "7.3.7",
@@ -116,55 +76,9 @@
               
             }
           }
-        ,
-          "react-dom": {
-            name: "react-dom",
-            version: "19.2.4",
-            scope: ["default"],
-            loaded: false,
-            from: "claimsManagementHost",
-            async get () {
-              if (false) {
-                throw new Error(`Shared module '${"react-dom"}' must be provided by host`);
-              }
-              usedShared["react-dom"].loaded = true
-              const {"react-dom": pkgDynamicImport} = importMap
-              const res = await pkgDynamicImport()
-              const exportModule = {...res}
-              // All npm packages pre-built by vite will be converted to esm
-              Object.defineProperty(exportModule, "__esModule", {
-                value: true,
-                enumerable: false
-              })
-              return function () {
-                return exportModule
-              }
-            },
-            shareConfig: {
-              singleton: true,
-              requiredVersion: ">=19.1.1",
-              
-            }
-          }
         
     }
       const usedRemotes = [
-                {
-                  entryGlobalName: "memberSearchApp",
-                  name: "memberSearchApp",
-                  type: "module",
-                  entry: "http://localhost:3002/ucp-member-search-ui/remoteEntry.js",
-                  shareScope: "default",
-                }
-          ,
-                {
-                  entryGlobalName: "employerGroupSearchApp",
-                  name: "employerGroupSearchApp",
-                  type: "module",
-                  entry: "http://localhost:3003/ucp-group-search-ui/remoteEntry.js",
-                  shareScope: "default",
-                }
-          
       ]
       export {
         usedShared,

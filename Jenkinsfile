@@ -1,3 +1,3 @@
-@Library('OCI-SharedLibraries@master') _
+@Library('OCI-SharedLibraries@container-oke-agent') _
 
 cicdpipeline()
