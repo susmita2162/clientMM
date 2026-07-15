@@ -4,14 +4,19 @@
 // Shared singleton rules:
 //   Only packages that are safe to share across the federation boundary are
 //   listed here. @emotion/styled, @emotion/cache, @emotion/serialize are
-//   intentionally excluded from ALL three apps (host + both remotes) —
-//   sharing them causes "TypeError: e is not a function" at runtime due to
-//   CJS/ESM interop issues in @module-federation/vite. Each app bundles its
-//   own copy; the size trade-off is acceptable and correct.
+//   intentionally excluded — sharing them causes "TypeError: e is not a
+//   function" at runtime due to CJS/ESM interop issues in
+//   @module-federation/vite. employerGroupSearchApp bundles its own copy;
+//   the size trade-off is acceptable and correct.
 //
 //   requiredVersion uses >= ranges so minor version differences between host
-//   (19.2.0) and remotes (19.1.1) don't cause federation warnings or
-//   unpredictable singleton resolution.
+//   and the remote don't cause federation warnings or unpredictable
+//   singleton resolution.
+//
+// NOTE: memberSearchApp was removed from `remotes` — Member Search is now
+// consumed as the installed npm package `ucp-member-search-ui`
+// (see src/components/MemberSearchPanel.tsx). employerGroupSearchApp
+// remains an MF remote; no change to its config below.
 //
 // Proxy — two live services, one proxy rule:
 //
@@ -41,9 +46,6 @@ export default defineConfig(({ mode }) => {
 
   const isLive = env.VITE_API_MODE === 'live';
 
-  const memberSearchBase =
-    env.VITE_MEMBER_SEARCH_URL ?? 'http://localhost:3002/ucp-member-search-ui';
-
   const employerGroupBase =
     env.VITE_EMPLOYER_GROUP_URL ?? 'http://localhost:3003/ucp-group-search-ui';
 
@@ -55,11 +57,6 @@ export default defineConfig(({ mode }) => {
       federation({
         name: 'claimsManagementHost',
         remotes: {
-          memberSearchApp: {
-            type: 'module',
-            name: 'memberSearchApp',
-            entry: `${memberSearchBase}/remoteEntry.js`,
-          },
           employerGroupSearchApp: {
             type: 'module',
             name: 'employerGroupSearchApp',

@@ -33,8 +33,10 @@ import {
   Divider,
   Typography,
 } from '@mui/material';
-import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
-import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import {
+  WarningAmberRounded as WarningAmberRoundedIcon,
+  ErrorOutline as ErrorOutlineIcon,
+} from '@mui/icons-material';
 
 // ── Shared warning icon ───────────────────────────────────────────────────────
 

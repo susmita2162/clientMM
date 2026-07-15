@@ -40,10 +40,7 @@ import { claimsApi } from '../services/claimsApi';
 import { getScenarioConfig } from '../utils/scenarioFieldConfig';
 import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
 import type { HaltedClaim } from '../types/claims';
-import type {
-  MemberRecord,
-  MemberSearchForm,
-} from 'memberSearchApp/MemberSearchWidget';
+import type { MemberRecord, MemberSearchForm } from 'ucp-member-search-ui';
 import type { EmployerGroupSearchForm } from 'employerGroupSearchApp/EmployerGroupSearchWidget';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -349,7 +346,7 @@ export default function ClientManualMatchDashboard() {
         }}
       >
         <Alert severity='info' sx={{ maxWidth: 480, width: '100%' }}>
-          <Typography variant='subtitle1' fontWeight={600} gutterBottom>
+          <Typography variant='subtitle1' sx={{ fontWeight: 600 }} gutterBottom>
             Queue Complete
           </Typography>
           <Typography variant='body2'>

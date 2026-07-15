@@ -171,7 +171,14 @@ const ClaimsTable = () => {
 
   if (loading) {
     return (
-      <Box display='flex' justifyContent='center' alignItems='center' flex={1}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          flex: 1,
+        }}
+      >
         <CircularProgress />
       </Box>
     );
@@ -180,13 +187,15 @@ const ClaimsTable = () => {
   if (error) {
     return (
       <Box
-        display='flex'
-        justifyContent='center'
-        alignItems='center'
-        flex={1}
-        p={2}
+        sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          flex: 1,
+          p: 2,
+        }}
       >
-        <Box maxWidth='600px' width='100%'>
+        <Box sx={{ maxWidth: '600px', width: '100%' }}>
           <Alert severity='error' sx={{ mb: 2 }}>
             {error}
           </Alert>
