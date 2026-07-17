@@ -1,8 +1,14 @@
 FROM artifactory.multiplan.com/mpi_approved_images/node/node:22 as build
 
+# Pin npm — base image ships npm 11.x, whose allow-remote=none default
+# misclassifies Artifactory registry-mirror tarballs as blocked "remote"
+# fetches (npm/cli#9548), breaking npm ci. Pinning avoids floating on
+# whatever npm the base image happens to ship.
+# RUN npm install -g npm@10.9.2
+
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 
 RUN npm config set fetch-timeout 900000
 
