@@ -13,9 +13,18 @@ import type { HaltedClaim } from '../types/claims';
 
 // ── Field config ──────────────────────────────────────────────────────────────
 
+// Restricts a key type to only the properties of T whose value is
+// string-like — excludes array/object fields (e.g. HaltedClaim.pendNotes)
+// so String(claim[field.key]) is provably safe, no [object Object] risk.
+type StringKeys<T> = {
+  [K in keyof T]-?: T[K] extends string | number | boolean | null | undefined
+    ? K
+    : never;
+}[keyof T];
+
 interface ClaimField {
   label: string;
-  key: keyof HaltedClaim;
+  key: StringKeys<HaltedClaim>;
   span?: number;
 }
 
