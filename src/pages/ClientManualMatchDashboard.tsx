@@ -41,7 +41,7 @@ import { getScenarioConfig } from '../utils/scenarioFieldConfig';
 import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
 import type { HaltedClaim } from '../types/claims';
 import type { MemberRecord, MemberSearchForm } from 'ucp-member-search-ui';
-import type { EmployerGroupSearchForm } from 'employerGroupSearchApp/EmployerGroupSearchWidget';
+import type { EmployerGroupSearchForm } from 'ucp-group-search-ui';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

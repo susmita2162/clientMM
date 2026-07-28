@@ -24,10 +24,22 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
 import {
   MemberSearchWidget,
+  configureMemberService,
   type MemberRecord,
   type MemberSearchField,
   type MemberSearchForm,
 } from 'ucp-member-search-ui';
+
+// Configure once at module load — before any MemberSearchPanel instance
+// renders, and therefore before MemberSearchWidget's own autoSearch effect
+// can fire. Calling this from useEffect races the child's mount effect
+// (children's effects run before the parent's on mount) and loses when
+// autoSearch=true, since the child fetches before the parent's effect runs.
+configureMemberService({
+  mode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
+  liveBaseUrl: import.meta.env.VITE_CLAIMS_SEARCH_API_URL ?? '',
+  mockBaseUrl: import.meta.env.VITE_MOCK_API_BASE_URL ?? '',
+});
 
 // ── Public panel props ────────────────────────────────────────────────────────
 

@@ -1,38 +1,47 @@
 // src/components/EmployerGroupSearchPanel.tsx
 //
-// Host panel wrapping the EmployerGroupSearchWidget MFE remote component.
+// Host panel wrapping the EmployerGroupSearchWidget.
 //
-// Widget contract (verified against EmployerGroupSearchWidget.tsx source):
-//   ccode, network, onClientCodeSelected, autoSearch,
-// fields:
-//   scenarioConfig.employerFields from Dashboard → widget → EmployerGroupSearchForm
-//   → yellow background sx on each targeted form field.
+// CHANGES (npm package migration):
+//   • EmployerGroupSearchWidget is no longer a Module Federation remote — it
+//     is now imported directly from the installed npm package
+//     `ucp-group-search-ui`. Import is static (build-time), not lazy.
+//   • Types (ClientRecord, EmployerGroupField, EmployerGroupSearchForm) now
+//     come from the package's own shipped .d.ts, not an ambient
+//     module-federation.d.ts declaration.
+//   • Suspense/MfeErrorBoundary retained — the widget can still be
+//     code-split via React.lazy() later if desired; the error boundary still
+//     guards against component-level render errors regardless of source.
 //
-// EG_FIELD_TO_FORM_KEY mapping (defined in EmployerGroupSearchForm.tsx):
-//   'network'             → 'network'
-//   'policyAlias'         → 'policyNumAlias'
-//   'groupNameAlias'      → 'groupNameAlias'
-//   'parentCodeDescAlias' → 'parentCodeDescription'
-//   'clientCode'          → 'ccode'
+// PRE-REQUISITE: ucp-group-search-ui must be >=0.0.2 — that version adds the
+// EmployerGroupSearchWidget / ClientRecord / EmployerGroupField exports this
+// file relies on.
 //
-// Flash-and-revert fix (from prior session):
+// Flash-and-revert fix (from prior session, retained):
 //   extractCcode reads ClientRecord.ccode (required field).
 //   The widget fires onClientCodeSelected exactly once per row click.
 
-import { Suspense, lazy, useCallback } from 'react';
+import { Suspense, useCallback } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
-import type {
-  ClientRecord,
-  EmployerGroupField,
-  EmployerGroupSearchForm,
-} from 'employerGroupSearchApp/EmployerGroupSearchWidget';
+import {
+  EmployerGroupSearchWidget,
+  configureGroupSearchService,
+  type ClientRecord,
+  type EmployerGroupField,
+  type EmployerGroupSearchForm,
+} from 'ucp-group-search-ui';
 
-// ── Lazy-load the remote widget ───────────────────────────────────────────────
-
-const EmployerGroupSearchWidget = lazy(
-  () => import('employerGroupSearchApp/EmployerGroupSearchWidget')
-);
+// Configure once at module load — before any EmployerGroupSearchPanel
+// instance renders, and therefore before the widget's own autoSearch effect
+// can fire. Calling this from useEffect races the child's mount effect and
+// loses when autoSearch=true, since the child fetches before the parent's
+// effect runs. Same reasoning as MemberSearchPanel's configureMemberService.
+configureGroupSearchService({
+  mode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
+  liveBaseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
+  mockBaseUrl: import.meta.env.VITE_MOCK_API_BASE_URL ?? '',
+});
 
 // ── Public panel props ────────────────────────────────────────────────────────
 
@@ -70,7 +79,7 @@ function EmployerGroupSearchFallback() {
 
 /**
  * Extract ccode from a ClientRecord.
- * ClientRecord.ccode is REQUIRED per module-federation.d.ts.
+ * ClientRecord.ccode is REQUIRED per ucp-group-search-ui's types.
  * Guard prevents a no-op state update on unexpected type mismatch.
  */
 function extractCcode(client: ClientRecord): string {
@@ -95,9 +104,8 @@ export default function EmployerGroupSearchPanel({
       if (!onCcodeSelected) return;
       const extracted = extractCcode(client);
       if (!extracted) return;
-      // matchType is present on ClientRecord from EmployerGroupSearchWidget at runtime.
-      // Cast needed because module-federation.d.ts may not yet declare it explicitly.
-      // If it does, remove the cast and access client.matchType directly.
+      // matchType is present on ClientRecord at runtime; cast retained until
+      // the package's ClientRecord type declares it explicitly.
       const matchType = (client as ClientRecord & { matchType?: string | null })
         .matchType;
       onCcodeSelected(extracted, matchType ?? undefined);
