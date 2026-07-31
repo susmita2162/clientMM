@@ -34,32 +34,83 @@ import { extractError, handleError } from '../utils/errorUtils';
 
 // ============================================================================
 // CONFIG
-// All VITE_* vars are declared in vite-env.d.ts — import.meta.env accesses
-// are fully typed as string. No casts or local workaround interfaces needed.
+//
+// Runtime-configurable (not frozen at this package's own Vite build time).
+//
+// WHY: import.meta.env.VITE_* values are substituted once, when THIS package
+// is built. A consuming host (e.g. chassis, a Next.js/webpack app) has its
+// own build pipeline and its own environment — it cannot influence values
+// already baked into this package's compiled output. Without a runtime
+// override, every host is stuck with whatever base URLs happened to be set
+// when ucp-client-match-ui was last built (typically local/dev defaults),
+// regardless of what that host actually needs.
+//
+// configureClaimsService() is the override hook. The standalone app
+// (main.tsx / this package's own dev server) never calls it, so it keeps
+// using the VITE_* defaults below exactly as before — no behavior change.
+// Hosts like chassis call it once at startup with their own live URLs.
 // ============================================================================
 
-const API_MODE = import.meta.env.VITE_API_MODE;
-const IS_LIVE = API_MODE === 'live';
+interface ClaimsServiceConfig {
+  mode: 'mock' | 'live';
+  mockBaseUrl: string;
+  claimsSearchBaseUrl: string;
+  claimMatchBaseUrl: string;
+}
 
-const MOCK_API_URL = import.meta.env.VITE_MOCK_API_BASE_URL;
+const DEFAULT_CONFIG: ClaimsServiceConfig = {
+  mode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
+  mockBaseUrl:
+    import.meta.env.VITE_MOCK_API_BASE_URL || 'http://localhost:3001',
+  claimsSearchBaseUrl: import.meta.env.VITE_CLAIMS_SEARCH_API_URL,
+  claimMatchBaseUrl: import.meta.env.VITE_CLAIM_MATCH_API_URL,
+};
 
-// One base URL per service — no path prefix added by buildUrl.
-// Set these in .env.local / deployment env to the full service base.
-const CLAIMS_SEARCH_API_URL = import.meta.env.VITE_CLAIMS_SEARCH_API_URL;
-const CLAIM_MATCH_API_URL = import.meta.env.VITE_CLAIM_MATCH_API_URL;
+let config: ClaimsServiceConfig = { ...DEFAULT_CONFIG };
+
+/**
+ * Overrides claimsApi's runtime config. Call once, at host startup, before
+ * any claimsApi.* method is invoked (e.g. chassis calls this in its
+ * ManualReview wrapper before ManualReviewDashboard/ClaimsTable mount).
+ *
+ * Safe to leave uncalled — claimsApi falls back to this package's own
+ * VITE_* build-time defaults (used by the standalone claims-sum app).
+ */
+export function configureClaimsService(next: ClaimsServiceConfig): void {
+  config = next;
+
+  if (import.meta.env.DEV && config.mode === 'live') {
+    if (!config.claimsSearchBaseUrl) {
+      console.warn(
+        '[claimsApi] configureClaimsService: claimsSearchBaseUrl is empty.'
+      );
+    }
+    if (!config.claimMatchBaseUrl) {
+      console.warn(
+        '[claimsApi] configureClaimsService: claimMatchBaseUrl is empty.'
+      );
+    }
+  }
+}
+
+export type { ClaimsServiceConfig };
 
 const API_TIMEOUT = Number.parseInt(import.meta.env.VITE_API_TIMEOUT, 10);
 
-if (import.meta.env.DEV && IS_LIVE) {
-  if (!CLAIMS_SEARCH_API_URL) {
+if (import.meta.env.DEV && DEFAULT_CONFIG.mode === 'live') {
+  if (!DEFAULT_CONFIG.claimsSearchBaseUrl) {
     console.warn('[claimsApi] VITE_CLAIMS_SEARCH_API_URL is not set.');
   }
-  if (!CLAIM_MATCH_API_URL) {
+  if (!DEFAULT_CONFIG.claimMatchBaseUrl) {
     console.warn('[claimsApi] VITE_CLAIM_MATCH_API_URL is not set.');
   }
 }
 
-if (import.meta.env.DEV && !IS_LIVE && !MOCK_API_URL) {
+if (
+  import.meta.env.DEV &&
+  DEFAULT_CONFIG.mode !== 'live' &&
+  !import.meta.env.VITE_MOCK_API_BASE_URL
+) {
   console.warn(
     '[claimsApi] VITE_MOCK_API_BASE_URL not set — falling back to http://localhost:3001'
   );
@@ -97,7 +148,7 @@ const PATHS = {
  * Content-Type is omitted — added only by getPostHeaders() for POST requests.
  */
 function getHeaders(): Record<string, string> {
-  if (IS_LIVE) return { Accept: 'application/json' };
+  if (config.mode === 'live') return { Accept: 'application/json' };
   return {};
 }
 
@@ -117,11 +168,11 @@ function getPostHeaders(): Record<string, string> {
  * confirmed from Postman (https://clm-poc.dev.multiplan.com/claim-match/findByClaimId/...).
  */
 function buildUrl(path: string): string {
-  if (!IS_LIVE) return `${MOCK_API_URL}${path}`;
+  if (config.mode !== 'live') return `${config.mockBaseUrl}${path}`;
 
   const base = path.startsWith('/api/clientmatch')
-    ? CLAIMS_SEARCH_API_URL
-    : CLAIM_MATCH_API_URL;
+    ? config.claimsSearchBaseUrl
+    : config.claimMatchBaseUrl;
 
   return `${base}${path}`;
 }
