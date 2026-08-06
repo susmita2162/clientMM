@@ -1,20 +1,46 @@
 // src/pages/ManualReviewDashboard.tsx
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Box } from '@mui/material';
 import ClaimsSearchForm, {
   type ClaimSearchParams,
 } from '../components/ClaimsSearchForm';
-import ClaimsTable from '../components/ClaimsTable/ClaimsTable';
+import ClaimsTable, {
+  type QueueContext,
+} from '../components/ClaimsTable/ClaimsTable';
 import Collapsible from '../components/shared/Collapsible';
 import NotFoundDialog from '../components/shared/NotFoundDialog';
 import { claimsApi } from '../services/claimsApi';
 import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
+import type { HaltedClaim } from '../types/claims';
+import type { UserContext } from '../types/auth';
 
-export default function ManualReviewDashboard() {
+interface ManualReviewDashboardProps {
+  /**
+   * Fired whenever a claim is found — via the search form, or via a Claim
+   * Counts table cell. This component never imports react-router or any
+   * other router; the host owns navigation entirely and supplies it here
+   * (react-router's navigate() in the standalone app, Next's
+   * router.push() in Chassis).
+   */
+  readonly onClaimFound: (
+    claim: HaltedClaim,
+    queueContext?: QueueContext
+  ) => void;
+  /**
+   * Current user's permission context. Optional here since not every
+   * internal action currently needs a permission check — accepted so the
+   * prop chassis already sends has somewhere to go, and so any
+   * SecuredRoute-gated action added later can read it via useAccessControl.
+   */
+  readonly userContext?: UserContext;
+}
+
+export default function ManualReviewDashboard({
+  onClaimFound,
+  userContext,
+}: ManualReviewDashboardProps) {
   const [showNotFoundDialog, setShowNotFoundDialog] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const navigate = useNavigate();
 
   /**
    * Handles the search form submission.
@@ -23,7 +49,7 @@ export default function ManualReviewDashboard() {
    *
    * Both search methods return HaltedClaimApiResponse | null:
    *   null  → claim not found / not halted / locked → show NotFoundDialog
-   *   value → adapt and navigate to ClientManualMatchDashboard
+   *   value → adapt and call onClaimFound
    */
   const handleClaimSearch = async (params: ClaimSearchParams) => {
     try {
@@ -41,7 +67,7 @@ export default function ManualReviewDashboard() {
 
       if (raw) {
         const claim = adaptHaltedClaimResponse(raw);
-        void navigate(`/claim/${claim.claimNumber}`, { state: { claim } });
+        onClaimFound(claim);
       } else {
         setErrorMessage(
           'The specified claim was not found. Either it is not a halted claim, ' +
@@ -75,7 +101,7 @@ export default function ManualReviewDashboard() {
 
       {/* Claim Counts — collapsible with claims summary table */}
       <Collapsible title='Claim Counts' defaultExpanded={true}>
-        <ClaimsTable />
+        <ClaimsTable onClaimReady={onClaimFound} />
       </Collapsible>
 
       {/* Halted Claim Not Found dialog */}

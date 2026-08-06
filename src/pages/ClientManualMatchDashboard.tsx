@@ -22,7 +22,6 @@
 //   - serviceDate MM-DD-YYYY → YYYY-MM-DD conversion via toIsoDate().
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -53,6 +52,25 @@ interface QueueContext {
   claimType: string;
   pended: boolean;
   network: string;
+}
+
+interface ClientManualMatchDashboardProps {
+  /**
+   * Claim data, supplied by the host. This component never imports
+   * react-router or any other router, so it does not read location.state —
+   * each host is responsible for getting claim data to it (the standalone
+   * app's route wrapper reads react-router state; Chassis's route fetches
+   * by claimNumber URL param).
+   */
+  claim?: HaltedClaim;
+  /** Queue filter context, supplied by the host. */
+  queueContext?: QueueContext;
+  /**
+   * "Go back to Manual Review" callback. Every internal navigation-back
+   * action in this component calls this — there is no built-in fallback,
+   * since this component has no router of its own.
+   */
+  onNavigateBack: () => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -89,10 +107,11 @@ const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => (
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function ClientManualMatchDashboard() {
-  const location = useLocation();
-  const navigate = useNavigate();
-
+export default function ClientManualMatchDashboard({
+  claim: claimProp,
+  queueContext: queueContextProp,
+  onNavigateBack,
+}: ClientManualMatchDashboardProps) {
   const [claim, setClaim] = useState<HaltedClaim | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,8 +124,7 @@ export default function ClientManualMatchDashboard() {
   >(null);
 
   const [activeTab, setActiveTab] = useState(() => {
-    const state = location.state as { claim?: HaltedClaim } | null;
-    const cfg = getScenarioConfig(state?.claim?.ruleCode ?? '');
+    const cfg = getScenarioConfig(claimProp?.ruleCode ?? '');
     return cfg?.focusedMfe === 'employerGroup' ? 1 : 0;
   });
 
@@ -173,15 +191,10 @@ export default function ClientManualMatchDashboard() {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
-    const state = location.state as {
-      claim?: HaltedClaim;
-      queueContext?: QueueContext;
-    } | null;
-
-    if (state?.claim) {
-      setClaim(state.claim);
-      if (state.queueContext) {
-        queueContextRef.current = state.queueContext;
+    if (claimProp) {
+      setClaim(claimProp);
+      if (queueContextProp) {
+        queueContextRef.current = queueContextProp;
       }
       setLoading(false);
       return;
@@ -214,10 +227,10 @@ export default function ClientManualMatchDashboard() {
       if (queueContextRef.current) {
         void loadNextHaltedClaim(queueContextRef.current);
       } else {
-        void navigate('/manual-review');
+        onNavigateBack();
       }
     },
-    [loadNextHaltedClaim, navigate]
+    [loadNextHaltedClaim, onNavigateBack]
   );
 
   // ── CcodeNotFound handler ─────────────────────────────────────────────────
@@ -354,10 +367,7 @@ export default function ClientManualMatchDashboard() {
             have been processed or are locked by another user.
           </Typography>
         </Alert>
-        <Button
-          variant='contained'
-          onClick={() => void navigate('/manual-review')}
-        >
+        <Button variant='contained' onClick={onNavigateBack}>
           Return to Manual Review Dashboard
         </Button>
       </Box>
@@ -372,10 +382,7 @@ export default function ClientManualMatchDashboard() {
         <Alert severity='error' sx={{ mb: 2 }}>
           {error ?? 'Claim not found.'}
         </Alert>
-        <Button
-          variant='outlined'
-          onClick={() => void navigate('/manual-review')}
-        >
+        <Button variant='outlined' onClick={onNavigateBack}>
           Return to Manual Review Dashboard
         </Button>
       </Box>
@@ -406,7 +413,7 @@ export default function ClientManualMatchDashboard() {
               // via its own internal state when the user clicks Update CCode again.
               setCcodeNotFoundMessage(null);
             }}
-            onReturnToDashboard={() => void navigate('/manual-review')}
+            onReturnToDashboard={onNavigateBack}
           />
         </Box>
       )}
@@ -420,7 +427,7 @@ export default function ClientManualMatchDashboard() {
           selectedEligMemberId={selectedEligMemberId}
           selectedMemberServiceDate={selectedMemberServiceDate}
           selectedMatchType={selectedMatchType || undefined}
-          onNavigateBack={() => void navigate('/manual-review')}
+          onNavigateBack={onNavigateBack}
         />
       </Box>
 

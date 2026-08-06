@@ -1,6 +1,5 @@
 // src/components/ClaimsTable/ClaimsTable.tsx
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Box,
   ButtonBase,
@@ -31,6 +30,26 @@ import {
 } from './utils';
 import { claimsApi } from '../../services/claimsApi';
 import { adaptHaltedClaimResponse } from '../../utils/claimAdapters';
+import type { HaltedClaim } from '../../types/claims';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface QueueContext {
+  claimType: string;
+  pended: boolean;
+  network: string;
+}
+
+interface ClaimsTableProps {
+  /**
+   * Fired once a claim is fetched from the queue. The host owns navigation
+   * entirely — this component never imports react-router or any other
+   * router, so it has no router-specific behavior to fall back to.
+   * Each host (standalone app, Chassis) supplies this via its own routing
+   * mechanism (react-router's navigate(), Next's router.push(), etc.).
+   */
+  onClaimReady: (claim: HaltedClaim, queueContext: QueueContext) => void;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +79,7 @@ const resolveApiClaimType = (claimType: string): string => {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const ClaimsTable = () => {
+const ClaimsTable = ({ onClaimReady }: ClaimsTableProps) => {
   const [showClaimType, setShowClaimType] = useState(false);
 
   // Per-cell loading key: "<claimStream>-<columnName>" | null.
@@ -71,7 +90,6 @@ const ClaimsTable = () => {
   const [navError, setNavError] = useState<string | null>(null);
 
   const { rows, loading, error } = useClaimsData();
-  const navigate = useNavigate();
 
   /**
    * Calls nextHalted directly, then navigates to ClientManualMatchDashboard
@@ -102,18 +120,12 @@ const ClaimsTable = () => {
 
       if (response) {
         const claim = adaptHaltedClaimResponse(response);
-        void navigate(`/claim/${claim.claimNumber}`, {
-          state: {
-            claim,
-            // queueContext lets ClientManualMatchDashboard auto-advance
-            // to the next halted claim after every action.
-            queueContext: {
-              claimType: apiClaimType,
-              pended: category === 'manual-pended',
-              network: claimStream,
-            },
-          },
-        });
+        const queueContext: QueueContext = {
+          claimType: apiClaimType,
+          pended: category === 'manual-pended',
+          network: claimStream,
+        };
+        onClaimReady(claim, queueContext);
       } else {
         setNavError('No halted claims are available for this selection.');
       }

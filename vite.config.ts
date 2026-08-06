@@ -1,130 +1,119 @@
-// vite.config.ts — ucp-client-match-ui (HOST)
-/// <reference types="vitest/config" />
+// vite.config.lib.ts — ucp-client-match-ui (LIBRARY BUILD)
 //
-// Shared singleton rules:
-//   Only packages that are safe to share across the federation boundary are
-//   listed here. @emotion/styled, @emotion/cache, @emotion/serialize are
-//   intentionally excluded — sharing them causes "TypeError: e is not a
-//   function" at runtime due to CJS/ESM interop issues in
-//   @module-federation/vite. employerGroupSearchApp bundles its own copy;
-//   the size trade-off is acceptable and correct.
+// Separate from vite.config.ts, which builds this app as a standalone,
+// deployed SPA (its own routing + Module Federation host role consuming
+// employerGroupSearchApp). That config has no `build.lib` section and no
+// dts plugin — it was never meant to produce an installable package, and
+// still shouldn't; don't merge these two configs together.
 //
-//   requiredVersion uses >= ranges so minor version differences between host
-//   and the remote don't cause federation warnings or unpredictable
-//   singleton resolution.
+// This config produces the actual npm package Chassis installs:
+//   dist/index.es.js    — ESM entry
+//   dist/index.umd.js   — CJS/UMD entry
+//   dist/index.d.ts     — type declarations
 //
-// NOTE: memberSearchApp was removed from `remotes` — Member Search is now
-// consumed as the installed npm package `ucp-member-search-ui`
-// (see src/components/MemberSearchPanel.tsx). employerGroupSearchApp
-// remains an MF remote; no change to its config below.
-//
-// Proxy — two live services, one proxy rule:
-//
-//   The live API exposes two separate services on the same host:
-//     claimsearchservice — /api/clientmatch/* and /api/clientMatch/*
-//     claim-match        — /api/client-match/*
-//
-//   A single proxy rule on '/api/client' catches all three path variants.
-//   The rewrite function distinguishes the two services by inspecting the
-//   path prefix and prepends the correct service segment:
-//     /api/client-match/... → /claim-match/api/client-match/...
-//     /api/clientmatch/...  → /claimsearchservice/api/clientmatch/...
-//     /api/clientMatch/...  → /claimsearchservice/api/clientMatch/...
-//
-//   In mock mode paths pass through unchanged — the mock server handles
-//   all three prefixes directly.
-//
-//   In Docker/OKE the Vite dev server is not running; nginx/ingress handles
-//   service routing instead. No change required there.
+// Modeled directly on ucp-Group-search-ui's vite.config.ts, which is
+// confirmed working today.
 
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { federation } from '@module-federation/vite';
+import dts from 'vite-plugin-dts';
+import path from 'path';
+import fs from 'fs';
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
-
-  const isLive = env.VITE_API_MODE === 'live';
-
-  const employerGroupBase =
-    env.VITE_EMPLOYER_GROUP_URL ?? 'http://localhost:3003/ucp-group-search-ui';
-
-  return {
-    base: '/ucp-client-match-ui',
-
-    plugins: [
-      react(),
-      federation({
-        name: 'claimsManagementHost',
-        remotes: {
-          employerGroupSearchApp: {
-            type: 'module',
-            name: 'employerGroupSearchApp',
-            entry: `${employerGroupBase}/remoteEntry.js`,
-          },
-        },
-        shared: {
-          react: { singleton: true, requiredVersion: '>=19.1.1' },
-          'react-dom': { singleton: true, requiredVersion: '>=19.1.1' },
-          '@mui/material': { singleton: true, requiredVersion: '>=7.3.4' },
-          '@mui/icons-material': {
-            singleton: true,
-            requiredVersion: '>=7.3.4',
-          },
-          '@emotion/react': { singleton: true, requiredVersion: '>=11.14.0' },
-        },
-        dts: false,
-      }),
-    ],
-
-    server: {
-      port: 5173,
-      proxy: {
-        '/api/client': {
-          target: isLive ? env.VITE_API_BASE_URL : env.VITE_MOCK_API_BASE_URL,
-          changeOrigin: true,
-          secure: false,
-          rewrite: isLive
-            ? (path: string) => {
-                if (path.startsWith('/api/client-match')) {
-                  return `/claim-match${path}`;
-                }
-                return `/claimsearchservice${path}`;
-              }
-            : (path: string) => path,
-        },
-      },
-    },
-
-    build: {
-      target: 'esnext',
-    },
-
-    // ── Vitest ────────────────────────────────────────────────────────────
-    // Lives in this same file (not a separate vitest.config.ts) so Vitest
-    // resolves modules with the same alias/plugin setup as the app itself.
-    test: {
-      environment: 'jsdom', // simulates a DOM so React components can render in Node
-      globals: true, // lets test files use describe/it/expect without importing them
-      setupFiles: './src/test/setup.ts',
-      css: false, // skip CSS parsing — MUI's sx/emotion styles don't need real CSS for logic tests
-      coverage: {
-        provider: 'v8', // uses Node's built-in coverage, no extra native deps like istanbul needs
-        reporter: ['text', 'lcov'], // 'text' for your terminal, 'lcov' for Sonar to consume
-        reportsDirectory: './coverage',
+export default defineConfig({
+  plugins: [
+    react(),
+    {
+      ...dts({
+        tsconfigPath: './tsconfig.app.json',
+        include: ['src'],
+        insertTypesEntry: true,
         exclude: [
+          'src/**/*.test.ts',
+          'src/**/*.test.tsx',
+          'src/test',
           'src/main.tsx',
-          'src/vite-env.d.ts',
           'src/module-federation.d.ts',
-          'src/**/*.d.ts',
-          'src/types/**',
-          'src/theme.ts',
-          'src/ThemeModeProvider.tsx',
-          'src/**/*.stories.tsx',
-          'src/**/*.test.{ts,tsx}',
-          '**/*.config.{ts,js}',
         ],
+        outDir: 'dist',
+        entryRoot: 'src',
+      }),
+      apply: 'build',
+      enforce: 'post',
+      closeBundle: async () => {
+        // Same fixup Group Search uses: dts emits dist/src/index.d.ts,
+        // move it to dist/index.d.ts and rewrite relative import paths.
+        const srcIndexPath = path.resolve(__dirname, 'dist/src/index.d.ts');
+        const distIndexPath = path.resolve(__dirname, 'dist/index.d.ts');
+
+        if (fs.existsSync(srcIndexPath)) {
+          let content = fs.readFileSync(srcIndexPath, 'utf-8');
+          content = content.replace(
+            /from ['"](\.\/)([^'"]+)['"]/g,
+            (_, dot, modulePath) => {
+              return `from '${dot}src/${modulePath}'`;
+            }
+          );
+          fs.writeFileSync(distIndexPath, content, 'utf-8');
+        }
+      },
+    } as any,
+  ],
+
+  build: {
+    lib: {
+      entry: path.resolve(__dirname, 'src/index.ts'),
+      name: 'ClientMatchUI',
+      formats: ['es', 'umd'],
+      fileName: (format) => `index.${format}.js`,
+    },
+    rollupOptions: {
+      // TODO: confirm against this package's actual package.json
+      // dependencies/peerDependencies — list below is inferred from
+      // Group Search's pattern plus what index.ts's export graph touches.
+      // react-router-dom is included for safety even though the three
+      // components we made router-free no longer import it directly —
+      // harmless to list if genuinely unused, Rollup just won't bundle it.
+      external: [
+        'react',
+        'react/jsx-runtime',
+        'react-dom',
+        'dayjs',
+        'react-router-dom',
+        '@emotion/styled',
+        '@emotion/react',
+        '@emotion/cache',
+        '@emotion/serialize',
+        '@emotion/utils',
+        '@mui/material',
+        '@mui/system',
+        '@mui/icons-material',
+        '@mui/x-data-grid',
+        '@mui/x-date-pickers',
+        'framer-motion',
+      ],
+      output: {
+        globals: {
+          react: 'React',
+          'react/jsx-runtime': 'ReactJSXRuntime',
+          'react-dom': 'ReactDOM',
+          'react-router-dom': 'ReactRouterDOM',
+          dayjs: 'dayjs',
+          '@emotion/react': 'emotionReact',
+          '@emotion/styled': 'emotionStyled',
+          '@emotion/cache': 'emotionCache',
+          '@emotion/serialize': 'emotionSerialize',
+          '@emotion/utils': 'emotionUtils',
+          '@mui/material': 'MUI',
+          '@mui/system': 'MUISystem',
+          '@mui/icons-material': 'MUIIcons',
+          '@mui/x-data-grid': 'MUIXDataGrid',
+          '@mui/x-date-pickers': 'MUIXDatePickers',
+          'framer-motion': 'FramerMotion',
+        },
       },
     },
-  };
+    sourcemap: true,
+    minify: 'esbuild',
+  },
 });

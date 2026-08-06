@@ -1,14 +1,33 @@
 import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ClaimsSearchForm from '../components/ClaimsSearchForm';
 import { Box } from '@mui/material';
 import type { ClaimsSearchCriteria } from '../types/claims';
-import ClaimsTable from '../components/ClaimsTable/ClaimsTable';
+import ClaimsTable, {
+  type QueueContext,
+} from '../components/ClaimsTable/ClaimsTable';
+import type { HaltedClaim } from '../types/claims';
 
 export default function ClaimsSearch() {
+  const navigate = useNavigate();
+
   // Handle search
   const handleSearch = useCallback((_criteria: ClaimsSearchCriteria) => {}, []);
 
   const handleClear = useCallback(() => {}, []);
+
+  // ClaimsTable no longer owns navigation itself — it requires this
+  // callback. Same pattern as ManualReviewRoute in main.tsx: this page is
+  // always rendered inside <RouterProvider>, so calling useNavigate() here
+  // directly is safe and unconditional.
+  const handleClaimReady = useCallback(
+    (claim: HaltedClaim, queueContext: QueueContext) => {
+      void navigate(`/claim/${claim.claimNumber}`, {
+        state: { claim, queueContext },
+      });
+    },
+    [navigate]
+  );
 
   return (
     <Box
@@ -35,7 +54,7 @@ export default function ClaimsSearch() {
           overflow: 'hidden',
         }}
       >
-        <ClaimsTable />
+        <ClaimsTable onClaimReady={handleClaimReady} />
       </Box>
     </Box>
   );

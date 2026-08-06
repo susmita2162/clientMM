@@ -1,52 +1,130 @@
-import { defineConfig } from 'vite';
+// vite.config.ts — ucp-client-match-ui (HOST)
+/// <reference types="vitest/config" />
+//
+// Shared singleton rules:
+//   Only packages that are safe to share across the federation boundary are
+//   listed here. @emotion/styled, @emotion/cache, @emotion/serialize are
+//   intentionally excluded — sharing them causes "TypeError: e is not a
+//   function" at runtime due to CJS/ESM interop issues in
+//   @module-federation/vite. employerGroupSearchApp bundles its own copy;
+//   the size trade-off is acceptable and correct.
+//
+//   requiredVersion uses >= ranges so minor version differences between host
+//   and the remote don't cause federation warnings or unpredictable
+//   singleton resolution.
+//
+// NOTE: memberSearchApp was removed from `remotes` — Member Search is now
+// consumed as the installed npm package `ucp-member-search-ui`
+// (see src/components/MemberSearchPanel.tsx). employerGroupSearchApp
+// remains an MF remote; no change to its config below.
+//
+// Proxy — two live services, one proxy rule:
+//
+//   The live API exposes two separate services on the same host:
+//     claimsearchservice — /api/clientmatch/* and /api/clientMatch/*
+//     claim-match        — /api/client-match/*
+//
+//   A single proxy rule on '/api/client' catches all three path variants.
+//   The rewrite function distinguishes the two services by inspecting the
+//   path prefix and prepends the correct service segment:
+//     /api/client-match/... → /claim-match/api/client-match/...
+//     /api/clientmatch/...  → /claimsearchservice/api/clientmatch/...
+//     /api/clientMatch/...  → /claimsearchservice/api/clientMatch/...
+//
+//   In mock mode paths pass through unchanged — the mock server handles
+//   all three prefixes directly.
+//
+//   In Docker/OKE the Vite dev server is not running; nginx/ingress handles
+//   service routing instead. No change required there.
+
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 
-export default defineConfig({
-  base: '/ucp-client-match-ui',
-  plugins: [
-    react(),
-    federation({
-      name: 'claimsManagementHost',
-      remotes: {
-        memberSearchApp: {
-          type: 'module',
-          name: 'memberSearchApp',
-          entry: 'http://localhost:3002/ucp-member-search-ui/remoteEntry.js',
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+
+  const isLive = env.VITE_API_MODE === 'live';
+
+  const employerGroupBase =
+    env.VITE_EMPLOYER_GROUP_URL ?? 'http://localhost:3003/ucp-group-search-ui';
+
+  return {
+    base: '/ucp-client-match-ui',
+
+    plugins: [
+      react(),
+      federation({
+        name: 'claimsManagementHost',
+        remotes: {
+          employerGroupSearchApp: {
+            type: 'module',
+            name: 'employerGroupSearchApp',
+            entry: `${employerGroupBase}/remoteEntry.js`,
+          },
         },
-        employerGroupSearchApp: {
-          type: 'module',
-          name: 'employerGroupSearchApp',
-          entry: 'http://localhost:3003/ucp-group-search-ui/remoteEntry.js',
+        shared: {
+          react: { singleton: true, requiredVersion: '>=19.1.1' },
+          'react-dom': { singleton: true, requiredVersion: '>=19.1.1' },
+          '@mui/material': { singleton: true, requiredVersion: '>=7.3.4' },
+          '@mui/icons-material': {
+            singleton: true,
+            requiredVersion: '>=7.3.4',
+          },
+          '@emotion/react': { singleton: true, requiredVersion: '>=11.14.0' },
         },
-      },
-      shared: {
-        react: { singleton: true },
-        'react-dom': { singleton: true },
-        '@mui/material': { singleton: true },
-        '@mui/icons-material': { singleton: true },
-        '@emotion/react': { singleton: true },
-        // '@emotion/styled': { singleton: true },
-        // ✅ FIX ISSUE 1: Add @emotion internal packages
-        // '@emotion/cache': { singleton: true },
-        // '@emotion/serialize': { singleton: true },
-        '@emotion/utils': { singleton: true },
-      },
-      // ✅ FIX ISSUE 2 & 3: Host doesn't need DTS - you have manual types
-      dts: false,
-    }),
-  ],
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
+        dts: false,
+      }),
+    ],
+
+    server: {
+      port: 5173,
+      proxy: {
+        '/api/client': {
+          target: isLive ? env.VITE_API_BASE_URL : env.VITE_MOCK_API_BASE_URL,
+          changeOrigin: true,
+          secure: false,
+          rewrite: isLive
+            ? (path: string) => {
+                if (path.startsWith('/api/client-match')) {
+                  return `/claim-match${path}`;
+                }
+                return `/claimsearchservice${path}`;
+              }
+            : (path: string) => path,
+        },
       },
     },
-  },
-  build: {
-    target: 'esnext',
-    // minify: false, // Better for debugging
-  },
+
+    build: {
+      target: 'esnext',
+    },
+
+    // ── Vitest ────────────────────────────────────────────────────────────
+    // Lives in this same file (not a separate vitest.config.ts) so Vitest
+    // resolves modules with the same alias/plugin setup as the app itself.
+    test: {
+      environment: 'jsdom', // simulates a DOM so React components can render in Node
+      globals: true, // lets test files use describe/it/expect without importing them
+      setupFiles: './src/test/setup.ts',
+      css: false, // skip CSS parsing — MUI's sx/emotion styles don't need real CSS for logic tests
+      coverage: {
+        provider: 'v8', // uses Node's built-in coverage, no extra native deps like istanbul needs
+        reporter: ['text', 'lcov'], // 'text' for your terminal, 'lcov' for Sonar to consume
+        reportsDirectory: './coverage',
+        exclude: [
+          'src/main.tsx',
+          'src/vite-env.d.ts',
+          'src/module-federation.d.ts',
+          'src/**/*.d.ts',
+          'src/types/**',
+          'src/theme.ts',
+          'src/ThemeModeProvider.tsx',
+          'src/**/*.stories.tsx',
+          'src/**/*.test.{ts,tsx}',
+          '**/*.config.{ts,js}',
+        ],
+      },
+    },
+  };
 });

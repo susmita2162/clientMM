@@ -56,6 +56,7 @@ interface ClaimsServiceConfig {
   mockBaseUrl: string;
   claimsSearchBaseUrl: string;
   claimMatchBaseUrl: string;
+  timeoutMs: number;
 }
 
 const DEFAULT_CONFIG: ClaimsServiceConfig = {
@@ -64,6 +65,7 @@ const DEFAULT_CONFIG: ClaimsServiceConfig = {
     import.meta.env.VITE_MOCK_API_BASE_URL || 'http://localhost:3001',
   claimsSearchBaseUrl: import.meta.env.VITE_CLAIMS_SEARCH_API_URL,
   claimMatchBaseUrl: import.meta.env.VITE_CLAIM_MATCH_API_URL,
+  timeoutMs: Number.parseInt(import.meta.env.VITE_API_TIMEOUT, 10) || 30000,
 };
 
 let config: ClaimsServiceConfig = { ...DEFAULT_CONFIG };
@@ -76,8 +78,10 @@ let config: ClaimsServiceConfig = { ...DEFAULT_CONFIG };
  * Safe to leave uncalled — claimsApi falls back to this package's own
  * VITE_* build-time defaults (used by the standalone claims-sum app).
  */
-export function configureClaimsService(next: ClaimsServiceConfig): void {
-  config = next;
+export function configureClaimsService(
+  overrides: Partial<ClaimsServiceConfig>
+): void {
+  config = { ...config, ...overrides };
 
   if (import.meta.env.DEV && config.mode === 'live') {
     if (!config.claimsSearchBaseUrl) {
@@ -94,8 +98,6 @@ export function configureClaimsService(next: ClaimsServiceConfig): void {
 }
 
 export type { ClaimsServiceConfig };
-
-const API_TIMEOUT = Number.parseInt(import.meta.env.VITE_API_TIMEOUT, 10);
 
 if (import.meta.env.DEV && DEFAULT_CONFIG.mode === 'live') {
   if (!DEFAULT_CONFIG.claimsSearchBaseUrl) {
@@ -182,7 +184,7 @@ function fetchWithTimeout(
   options: RequestInit = {}
 ): Promise<Response> {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), API_TIMEOUT);
+  const id = setTimeout(() => controller.abort(), config.timeoutMs);
   return fetch(url, { ...options, signal: controller.signal }).finally(() =>
     clearTimeout(id)
   );
