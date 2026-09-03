@@ -14,30 +14,6 @@ import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
 import type { HaltedClaim } from '../types/claims';
 import type { UserContext } from '../types/auth';
 
-function toIsoDate(value: string): string {
-  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value);
-  return m ? `${m[3]}-${m[1]}-${m[2]}` : value;
-}
-
-interface AlwaysMountedPanelProps {
-  children: React.ReactNode;
-  visible: boolean;
-}
-
-const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => (
-  <Box
-    sx={{
-      display: visible ? 'flex' : 'none',
-      height: '100%',
-      width: '100%',
-      flexDirection: 'column',
-      overflow: 'hidden',
-    }}
-  >
-    {children}
-  </Box>
-);
-
 interface ManualReviewDashboardProps {
   /**
    * Fired whenever a claim is found — via the search form, or via a Claim

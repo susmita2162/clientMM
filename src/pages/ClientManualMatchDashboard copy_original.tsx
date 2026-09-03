@@ -48,6 +48,12 @@ const LOCK_EXPIRATION_MINUTES = 15;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface QueueContext {
+  claimType: string;
+  pended: boolean;
+  network: string;
+}
+
 interface ClientManualMatchDashboardProps {
   /**
    * Claim data, supplied by the host. This component never imports
@@ -57,14 +63,14 @@ interface ClientManualMatchDashboardProps {
    * by claimNumber URL param).
    */
   claim?: HaltedClaim;
-
+  /** Queue filter context, supplied by the host. */
+  queueContext?: QueueContext;
   /**
    * "Go back to Manual Review" callback. Every internal navigation-back
    * action in this component calls this — there is no built-in fallback,
    * since this component has no router of its own.
    */
   onNavigateBack: () => void;
-  userName?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -78,41 +84,35 @@ function toIsoDate(value: string): string {
   return m ? `${m[3]}-${m[1]}-${m[2]}` : value;
 }
 
-interface ClientManualMatchDashboardProps {
-  claim?: HaltedClaim;
-  onNavigateBack?: () => void;
-  userName?: string;
+// ── AlwaysMountedPanel ────────────────────────────────────────────────────────
+
+interface AlwaysMountedPanelProps {
+  children: React.ReactNode;
+  visible: boolean;
 }
 
-// // ── AlwaysMountedPanel ────────────────────────────────────────────────────────
-
-// interface AlwaysMountedPanelProps {
-//   children: React.ReactNode;
-//   visible: boolean;
-// }
-
-// const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => (
-//   <Box
-//     sx={{
-//       display: visible ? 'flex' : 'none',
-//       height: '100%',
-//       width: '100%',
-//       flexDirection: 'column',
-//       overflow: 'hidden',
-//     }}
-//   >
-//     {children}
-//   </Box>
-// );
+const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => (
+  <Box
+    sx={{
+      display: visible ? 'flex' : 'none',
+      height: '100%',
+      width: '100%',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}
+  >
+    {children}
+  </Box>
+);
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ClientManualMatchDashboard({
-  claim: incomingClaim,
+  claim: claimProp,
+  queueContext: queueContextProp,
   onNavigateBack,
-  userName = 'user',
 }: ClientManualMatchDashboardProps) {
-  const [claim, setClaim] = useState<HaltedClaim | null>(incomingClaim ?? null);
+  const [claim, setClaim] = useState<HaltedClaim | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [queueEmpty, setQueueEmpty] = useState(false);
@@ -124,7 +124,7 @@ export default function ClientManualMatchDashboard({
   >(null);
 
   const [activeTab, setActiveTab] = useState(() => {
-    const cfg = getScenarioConfig(incomingClaim?.ruleCode ?? '');
+    const cfg = getScenarioConfig(claimProp?.ruleCode ?? '');
     return cfg?.focusedMfe === 'employerGroup' ? 1 : 0;
   });
 
@@ -134,6 +134,9 @@ export default function ClientManualMatchDashboard({
   const [selectedMemberServiceDate, setSelectedMemberServiceDate] =
     useState<string>('');
   const [selectedMatchType, setSelectedMatchType] = useState('');
+
+  const queueContextRef = useRef<QueueContext | null>(null);
+  const hasInitialized = useRef(false);
 
   // ── Reset MFE selection state ─────────────────────────────────────────────
 
@@ -151,7 +154,7 @@ export default function ClientManualMatchDashboard({
   // All actions use the same POST /nextHalted path.
 
   const loadNextHaltedClaim = useCallback(
-    async (currentClaim: HaltedClaim) => {
+    async (ctx: QueueContext) => {
       setLoading(true);
       setError(null);
       setQueueEmpty(false);
@@ -159,21 +162,12 @@ export default function ClientManualMatchDashboard({
       resetMfeSelection();
       try {
         const response = await claimsApi.getNextHaltedClaim({
-          claimType: currentClaim.claimType,
-          pended: currentClaim.pended,
-          network: currentClaim.network,
+          claimType: ctx.claimType,
+          pended: ctx.pended,
+          network: ctx.network,
           lockedByUser: 'system',
           lockExpiration: LOCK_EXPIRATION_MINUTES,
         });
-
-        if (response && (response as any).status?.statusCode === 'A') {
-          setError(
-            (response as any).status?.description ??
-              'Claim is already locked by another user'
-          );
-          return;
-        }
-
         if (response) {
           const nextClaim = adaptHaltedClaimResponse(response);
           setClaim(nextClaim);
@@ -194,8 +188,14 @@ export default function ClientManualMatchDashboard({
   // ── Initialisation ─────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (incomingClaim) {
-      setClaim(incomingClaim);
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    if (claimProp) {
+      setClaim(claimProp);
+      if (queueContextProp) {
+        queueContextRef.current = queueContextProp;
+      }
       setLoading(false);
       return;
     }
@@ -214,13 +214,23 @@ export default function ClientManualMatchDashboard({
   // If no queue context exists (search-navigated entry), go back to dashboard.
 
   const handleClaimAction = useCallback(
-    (_action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim') => {
-      if (!claim) return;
+    (
+      _action:
+        | 'updateCCode'
+        | 'pendClaim'
+        | 'pendNotes'
+        | 'denyClaim'
+        | 'resetClaim'
+    ) => {
       setCcodeNotFoundMessage(null);
 
-      void loadNextHaltedClaim(claim);
+      if (queueContextRef.current) {
+        void loadNextHaltedClaim(queueContextRef.current);
+      } else {
+        onNavigateBack();
+      }
     },
-    [claim, loadNextHaltedClaim]
+    [loadNextHaltedClaim, onNavigateBack]
   );
 
   // ── CcodeNotFound handler ─────────────────────────────────────────────────
@@ -357,6 +367,9 @@ export default function ClientManualMatchDashboard({
             have been processed or are locked by another user.
           </Typography>
         </Alert>
+        <Button variant='contained' onClick={onNavigateBack}>
+          Return to Manual Review Dashboard
+        </Button>
       </Box>
     );
   }
@@ -415,7 +428,6 @@ export default function ClientManualMatchDashboard({
           selectedMemberServiceDate={selectedMemberServiceDate}
           selectedMatchType={selectedMatchType || undefined}
           onNavigateBack={onNavigateBack}
-          userName={userName}
         />
       </Box>
 
@@ -479,15 +491,15 @@ export default function ClientManualMatchDashboard({
             overflow: 'hidden',
           }}
         >
-          {activeTab === 0 && (
+          <AlwaysMountedPanel visible={activeTab === 0}>
             <MemberSearchPanel
               onMemberSelected={handleMemberSelected}
               fields={scenarioConfig?.memberFields}
               initialCriteria={memberInitialCriteria}
             />
-          )}
+          </AlwaysMountedPanel>
 
-          {activeTab === 1 && (
+          <AlwaysMountedPanel visible={activeTab === 1}>
             <EmployerGroupSearchPanel
               onCcodeSelected={(ccode, matchType) => {
                 setSelectedCcode(ccode);
@@ -496,7 +508,7 @@ export default function ClientManualMatchDashboard({
               fields={scenarioConfig?.employerFields}
               initialCriteria={egInitialCriteria}
             />
-          )}
+          </AlwaysMountedPanel>
         </Box>
       </Box>
     </Box>

@@ -46,7 +46,12 @@ import type { HaltedClaim, HaltedClaimApiPendNote } from '../types/claims';
 interface Props {
   readonly claim: HaltedClaim;
   readonly onAction: (
-    action: 'updateCCode' | 'pendClaim' | 'pendNotes' | 'denyClaim'
+    action:
+      | 'updateCCode'
+      | 'pendClaim'
+      | 'pendNotes'
+      | 'denyClaim'
+      | 'resetClaim'
   ) => void;
   /**
    * Called when updateCCode returns statusCode 'A' (invalid: ccodeNotFound).

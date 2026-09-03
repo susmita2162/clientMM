@@ -21,7 +21,7 @@
 //   extractCcode reads ClientRecord.ccode (required field).
 //   The widget fires onClientCodeSelected exactly once per row click.
 
-import { Suspense, useCallback, useEffect } from 'react';
+import { Suspense, useCallback } from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { MfeErrorBoundary } from './MfeErrorBoundary';
 import {
@@ -37,11 +37,11 @@ import {
 // can fire. Calling this from useEffect races the child's mount effect and
 // loses when autoSearch=true, since the child fetches before the parent's
 // effect runs. Same reasoning as MemberSearchPanel's configureMemberService.
-// configureGroupSearchService({
-//   mode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
-//   liveBaseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
-//   mockBaseUrl: import.meta.env.VITE_MOCK_API_BASE_URL ?? '',
-// });
+configureGroupSearchService({
+  mode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
+  liveBaseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
+  mockBaseUrl: import.meta.env.VITE_MOCK_API_BASE_URL ?? '',
+});
 
 // ── Public panel props ────────────────────────────────────────────────────────
 
@@ -99,14 +99,6 @@ export default function EmployerGroupSearchPanel({
   // → ClientCodesGrid useEffect re-runs (onRowSelect is in its deps) → re-fetch
   // → auto-selects row 1 → reverts the user's selection (flash-and-revert bug).
   // onCcodeSelected is setSelectedCcode (useState setter) — stable by guarantee.
-  useEffect(() => {
-    configureGroupSearchService({
-      mode: 'live',
-      liveBaseUrl: '/claimsearchservice',
-      mockBaseUrl: 'http://localhost:3001',
-    });
-  }, []);
-
   const handleClientCodeSelected = useCallback(
     (client: ClientRecord) => {
       if (!onCcodeSelected) return;

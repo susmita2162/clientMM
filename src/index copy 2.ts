@@ -31,8 +31,12 @@ export type {
   ClaimActionResponse,
   UpdateCcodeRequest,
   UpdateCcodeResult,
-  ResetSearchRequest,
   UpdateCcodeAlertResponse,
   HaltedClaim,
-  QueueContext,
 } from './types/claims';
+
+// QueueContext — used by ClaimsTable's onClaimReady / ManualReviewDashboard's
+// onClaimFound / ClientManualMatchDashboard's queueContext prop. Defined in
+// ClaimsTable since that's where it originates (queue filter selection),
+// re-exported here since chassis needs it to type its own callbacks.
+export type { QueueContext } from './components/ClaimsTable/ClaimsTable';

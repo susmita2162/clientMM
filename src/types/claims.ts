@@ -357,3 +357,9 @@ export interface EmployerGroupSearchResult {
   memberCount: number;
   planType: string;
 }
+
+export interface QueueContext {
+  claimType: string;
+  pended: boolean;
+  network: string;
+}

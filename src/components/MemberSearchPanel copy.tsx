@@ -29,37 +29,31 @@ import {
   type MemberSearchField,
   type MemberSearchForm,
 } from 'ucp-member-search-ui';
-import { useEffect } from 'react';
 
-export interface MemberSearchPanelProps {
-  readonly onMemberSelected?: (member: MemberRecord) => void;
-  readonly fields?: MemberSearchField[];
-  readonly initialCriteria?: Partial<MemberSearchForm>;
-}
 // Configure once at module load — before any MemberSearchPanel instance
 // renders, and therefore before MemberSearchWidget's own autoSearch effect
 // can fire. Calling this from useEffect races the child's mount effect
 // (children's effects run before the parent's on mount) and loses when
 // autoSearch=true, since the child fetches before the parent's effect runs.
-// configureMemberService({
-//   mode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
-//   liveBaseUrl: import.meta.env.VITE_CLAIMS_SEARCH_API_URL ?? '',
-//   mockBaseUrl: import.meta.env.VITE_MOCK_API_BASE_URL ?? '',
-// });
+configureMemberService({
+  mode: import.meta.env.VITE_API_MODE === 'live' ? 'live' : 'mock',
+  liveBaseUrl: import.meta.env.VITE_CLAIMS_SEARCH_API_URL ?? '',
+  mockBaseUrl: import.meta.env.VITE_MOCK_API_BASE_URL ?? '',
+});
 
 // ── Public panel props ────────────────────────────────────────────────────────
 
-// export interface MemberSearchPanelProps {
-//   /**
-//    * Called with the full MemberRecord when a member row is selected.
-//    * Parent extracts: member.ccode, member.id, member.effectiveDate.
-//    */
-//   readonly onMemberSelected?: (member: MemberRecord) => void;
-//   /** Fields to highlight yellow. Source: scenarioConfig.memberFields */
-//   readonly fields?: MemberSearchField[];
-//   /** Pre-populated claim values — forwarded to MemberSearchWidget. */
-//   readonly initialCriteria?: Partial<MemberSearchForm>;
-// }
+export interface MemberSearchPanelProps {
+  /**
+   * Called with the full MemberRecord when a member row is selected.
+   * Parent extracts: member.ccode, member.id, member.effectiveDate.
+   */
+  readonly onMemberSelected?: (member: MemberRecord) => void;
+  /** Fields to highlight yellow. Source: scenarioConfig.memberFields */
+  readonly fields?: MemberSearchField[];
+  /** Pre-populated claim values — forwarded to MemberSearchWidget. */
+  readonly initialCriteria?: Partial<MemberSearchForm>;
+}
 
 // ── Loading fallback ──────────────────────────────────────────────────────────
 
@@ -90,13 +84,6 @@ export default function MemberSearchPanel({
   fields,
   initialCriteria,
 }: MemberSearchPanelProps) {
-  useEffect(() => {
-    configureMemberService({
-      mode: 'live',
-      liveBaseUrl: '/claimsearchservice',
-      mockBaseUrl: 'http://localhost:3001',
-    });
-  }, []);
   return (
     <Box
       sx={{
@@ -104,6 +91,7 @@ export default function MemberSearchPanel({
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
       <MfeErrorBoundary mfeName='Member Search'>
