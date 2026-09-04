@@ -38,7 +38,7 @@ import { CcodeNotFoundBanner } from '../components/UpdateCcodeDialogs';
 import { claimsApi } from '../services/claimsApi';
 import { getScenarioConfig } from '../utils/scenarioFieldConfig';
 import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
-import type { HaltedClaim } from '../types/claims';
+import type { HaltedClaim, QueueContext } from '../types/claims';
 import type { MemberRecord, MemberSearchForm } from 'ucp-member-search-ui';
 import type { EmployerGroupSearchForm } from 'ucp-group-search-ui';
 
@@ -57,7 +57,13 @@ interface ClientManualMatchDashboardProps {
    * by claimNumber URL param).
    */
   claim?: HaltedClaim;
-
+  /**
+   * Queue filter context, supplied by the host. Present only when the user
+   * arrived via the Claims Table (queue-driven flow) — absent when they
+   * arrived via direct claim search. Determines whether completing an
+   * action advances to the next queued claim or returns to the dashboard.
+   */
+  queueContext?: QueueContext;
   /**
    * "Go back to Manual Review" callback. Every internal navigation-back
    * action in this component calls this — there is no built-in fallback,
@@ -65,6 +71,18 @@ interface ClientManualMatchDashboardProps {
    */
   onNavigateBack: () => void;
   userName?: string;
+  /**
+   * Member Search / Employer Group Search runtime config, supplied by the
+   * host the same way claimsApi's config is (see configureClaimsService).
+   * These MFE packages ship with build-time env-var defaults that only
+   * apply to their own standalone dev builds — an embedding host MUST
+   * override them at runtime via configureMemberService /
+   * configureGroupSearchService, or they silently fall back to those
+   * baked-in defaults (commonly localhost) in production.
+   */
+  apiMode: 'mock' | 'live';
+  liveBaseUrl: string;
+  mockBaseUrl: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -78,39 +96,42 @@ function toIsoDate(value: string): string {
   return m ? `${m[3]}-${m[1]}-${m[2]}` : value;
 }
 
-interface ClientManualMatchDashboardProps {
-  claim?: HaltedClaim;
-  onNavigateBack?: () => void;
-  userName?: string;
+// ── AlwaysMountedPanel ────────────────────────────────────────────────────────
+//
+// Both MFE panels must stay mounted permanently (visibility toggled via CSS
+// display, not mount/unmount) — remounting on every tab switch replays each
+// panel's config + auto-search effects, multiplying the config-race window
+// that produces localhost/stale-config requests and inconsistent auto-search.
+
+interface AlwaysMountedPanelProps {
+  children: React.ReactNode;
+  visible: boolean;
 }
 
-// // ── AlwaysMountedPanel ────────────────────────────────────────────────────────
-
-// interface AlwaysMountedPanelProps {
-//   children: React.ReactNode;
-//   visible: boolean;
-// }
-
-// const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => (
-//   <Box
-//     sx={{
-//       display: visible ? 'flex' : 'none',
-//       height: '100%',
-//       width: '100%',
-//       flexDirection: 'column',
-//       overflow: 'hidden',
-//     }}
-//   >
-//     {children}
-//   </Box>
-// );
+const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => (
+  <Box
+    sx={{
+      display: visible ? 'flex' : 'none',
+      height: '100%',
+      width: '100%',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}
+  >
+    {children}
+  </Box>
+);
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ClientManualMatchDashboard({
   claim: incomingClaim,
+  queueContext: queueContextProp,
   onNavigateBack,
   userName = 'user',
+  apiMode,
+  liveBaseUrl,
+  mockBaseUrl,
 }: ClientManualMatchDashboardProps) {
   const [claim, setClaim] = useState<HaltedClaim | null>(incomingClaim ?? null);
   const [loading, setLoading] = useState(true);
@@ -135,6 +156,9 @@ export default function ClientManualMatchDashboard({
     useState<string>('');
   const [selectedMatchType, setSelectedMatchType] = useState('');
 
+  const queueContextRef = useRef<QueueContext | null>(null);
+  const hasInitialized = useRef(false);
+
   // ── Reset MFE selection state ─────────────────────────────────────────────
 
   const resetMfeSelection = useCallback(() => {
@@ -151,7 +175,7 @@ export default function ClientManualMatchDashboard({
   // All actions use the same POST /nextHalted path.
 
   const loadNextHaltedClaim = useCallback(
-    async (currentClaim: HaltedClaim) => {
+    async (ctx: QueueContext) => {
       setLoading(true);
       setError(null);
       setQueueEmpty(false);
@@ -159,13 +183,18 @@ export default function ClientManualMatchDashboard({
       resetMfeSelection();
       try {
         const response = await claimsApi.getNextHaltedClaim({
-          claimType: currentClaim.claimType,
-          pended: currentClaim.pended,
-          network: currentClaim.network,
+          claimType: ctx.claimType,
+          pended: ctx.pended,
+          network: ctx.network,
           lockedByUser: 'system',
           lockExpiration: LOCK_EXPIRATION_MINUTES,
         });
 
+        // TODO: statusCode/description are not yet on the shared
+        // HaltedClaimApiResponse type — `as any` is a stand-in until the
+        // package's types/claims.ts is updated to include this locked-claim
+        // response shape. Not fabricating a type here without seeing the
+        // real API contract.
         if (response && (response as any).status?.statusCode === 'A') {
           setError(
             (response as any).status?.description ??
@@ -188,14 +217,24 @@ export default function ClientManualMatchDashboard({
         setLoading(false);
       }
     },
-    [resetMfeSelection]
+    [resetMfeSelection, userName]
   );
+
+  const handleNavigateBack = useCallback(() => {
+    onNavigateBack?.();
+  }, [onNavigateBack]);
 
   // ── Initialisation ─────────────────────────────────────────────────────────
 
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
     if (incomingClaim) {
       setClaim(incomingClaim);
+      if (queueContextProp) {
+        queueContextRef.current = queueContextProp;
+      }
       setLoading(false);
       return;
     }
@@ -218,9 +257,13 @@ export default function ClientManualMatchDashboard({
       if (!claim) return;
       setCcodeNotFoundMessage(null);
 
-      void loadNextHaltedClaim(claim);
+      if (queueContextRef.current) {
+        void loadNextHaltedClaim(queueContextRef.current);
+      } else {
+        onNavigateBack();
+      }
     },
-    [claim, loadNextHaltedClaim]
+    [loadNextHaltedClaim, onNavigateBack]
   );
 
   // ── CcodeNotFound handler ─────────────────────────────────────────────────
@@ -400,7 +443,7 @@ export default function ClientManualMatchDashboard({
               // via its own internal state when the user clicks Update CCode again.
               setCcodeNotFoundMessage(null);
             }}
-            onReturnToDashboard={onNavigateBack}
+            onReturnToDashboard={handleNavigateBack}
           />
         </Box>
       )}
@@ -414,7 +457,7 @@ export default function ClientManualMatchDashboard({
           selectedEligMemberId={selectedEligMemberId}
           selectedMemberServiceDate={selectedMemberServiceDate}
           selectedMatchType={selectedMatchType || undefined}
-          onNavigateBack={onNavigateBack}
+          onNavigateBack={handleNavigateBack}
           userName={userName}
         />
       </Box>
@@ -479,15 +522,18 @@ export default function ClientManualMatchDashboard({
             overflow: 'hidden',
           }}
         >
-          {activeTab === 0 && (
+          <AlwaysMountedPanel visible={activeTab === 0}>
             <MemberSearchPanel
               onMemberSelected={handleMemberSelected}
               fields={scenarioConfig?.memberFields}
               initialCriteria={memberInitialCriteria}
+              apiMode={apiMode}
+              liveBaseUrl={liveBaseUrl}
+              mockBaseUrl={mockBaseUrl}
             />
-          )}
+          </AlwaysMountedPanel>
 
-          {activeTab === 1 && (
+          <AlwaysMountedPanel visible={activeTab === 1}>
             <EmployerGroupSearchPanel
               onCcodeSelected={(ccode, matchType) => {
                 setSelectedCcode(ccode);
@@ -495,8 +541,11 @@ export default function ClientManualMatchDashboard({
               }}
               fields={scenarioConfig?.employerFields}
               initialCriteria={egInitialCriteria}
+              apiMode={apiMode}
+              liveBaseUrl={liveBaseUrl}
+              mockBaseUrl={mockBaseUrl}
             />
-          )}
+          </AlwaysMountedPanel>
         </Box>
       </Box>
     </Box>

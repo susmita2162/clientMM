@@ -33,12 +33,23 @@ import { adaptHaltedClaimResponse } from '../../utils/claimAdapters';
 import type { HaltedClaim, QueueContext } from '../../types/claims';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+// QueueContext is defined once, in types/claims.ts — re-exported here so
+// existing `import { type QueueContext } from '../components/ClaimsTable/ClaimsTable'`
+// call sites (e.g. ManualReviewDashboard.tsx) keep working unchanged.
+export type { QueueContext };
+
 interface ClaimsTableProps {
+  /** Current user's identifier — sent as lockedByUser on claim fetch. */
   userName: string;
-  onClaimSelected?: (
-    claimNumber: string,
-    claim: ReturnType<typeof adaptHaltedClaimResponse>
-  ) => void;
+  /**
+   * Fired once a claim is fetched from the queue. The host owns navigation
+   * entirely — this component never imports react-router or any other
+   * router, so it has no router-specific behavior to fall back to.
+   * Each host (standalone app, Chassis) supplies this via its own routing
+   * mechanism (react-router's navigate(), Next's router.push(), etc.).
+   */
+  onClaimReady: (claim: HaltedClaim, queueContext: QueueContext) => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -69,7 +80,7 @@ const resolveApiClaimType = (claimType: string): string => {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const ClaimsTable = ({ userName, onClaimSelected }: ClaimsTableProps) => {
+const ClaimsTable = ({ userName, onClaimReady }: ClaimsTableProps) => {
   const [showClaimType, setShowClaimType] = useState(false);
 
   // Per-cell loading key: "<claimStream>-<columnName>" | null.
@@ -104,7 +115,7 @@ const ClaimsTable = ({ userName, onClaimSelected }: ClaimsTableProps) => {
         claimType: apiClaimType,
         pended: category === 'manual-pended',
         network: claimStream,
-        lockedByUser: userName, // replace with auth user when available
+        lockedByUser: userName,
         lockExpiration: 15,
       });
 
@@ -118,17 +129,12 @@ const ClaimsTable = ({ userName, onClaimSelected }: ClaimsTableProps) => {
 
       if (response) {
         const claim = adaptHaltedClaimResponse(response);
-
-        if (!claim.claimNumber) {
-          setNavError('Unable to load claim.');
-          return;
-        }
-
-        if (onClaimSelected) {
-          onClaimSelected(claim.claimNumber, claim);
-        } else {
-          console.warn('No onClaimSeleced handler provided.');
-        }
+        const queueContext: QueueContext = {
+          claimType: apiClaimType,
+          pended: category === 'manual-pended',
+          network: claimStream,
+        };
+        onClaimReady(claim, queueContext);
       } else {
         setNavError('No halted claims are available for this selection.');
       }
