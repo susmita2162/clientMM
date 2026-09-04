@@ -14,30 +14,6 @@ import { adaptHaltedClaimResponse } from '../utils/claimAdapters';
 import type { HaltedClaim } from '../types/claims';
 import type { UserContext } from '../types/auth';
 
-function toIsoDate(value: string): string {
-  const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(value);
-  return m ? `${m[3]}-${m[1]}-${m[2]}` : value;
-}
-
-interface AlwaysMountedPanelProps {
-  children: React.ReactNode;
-  visible: boolean;
-}
-
-const AlwaysMountedPanel = ({ children, visible }: AlwaysMountedPanelProps) => (
-  <Box
-    sx={{
-      display: visible ? 'flex' : 'none',
-      height: '100%',
-      width: '100%',
-      flexDirection: 'column',
-      overflow: 'hidden',
-    }}
-  >
-    {children}
-  </Box>
-);
-
 interface ManualReviewDashboardProps {
   /**
    * Fired whenever a claim is found — via the search form, or via a Claim
@@ -80,9 +56,15 @@ export default function ManualReviewDashboard({
       let raw = null;
 
       if (params.claimNumber) {
-        raw = await claimsApi.searchByClaimId(params.claimNumber);
+        raw = await claimsApi.searchByClaimId(
+          params.claimNumber,
+          userContext?.userId ?? 'system'
+        );
       } else if (params.clientClaimId) {
-        raw = await claimsApi.searchByClientClaimId(params.clientClaimId);
+        raw = await claimsApi.searchByClientClaimId(
+          params.clientClaimId,
+          userContext?.userId ?? 'system'
+        );
       } else {
         setErrorMessage('Please enter a Claim Number or Client Claim ID.');
         setShowNotFoundDialog(true);
@@ -125,7 +107,10 @@ export default function ManualReviewDashboard({
 
       {/* Claim Counts — collapsible with claims summary table */}
       <Collapsible title='Claim Counts' defaultExpanded={true}>
-        <ClaimsTable onClaimReady={onClaimFound} />
+        <ClaimsTable
+          userName={userContext?.userId ?? 'system'}
+          onClaimReady={onClaimFound}
+        />
       </Collapsible>
 
       {/* Halted Claim Not Found dialog */}
